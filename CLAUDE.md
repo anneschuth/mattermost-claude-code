@@ -145,6 +145,14 @@ npm test             # (no tests yet)
 
 Releases are automated via GitHub Actions. When you create a GitHub release, it automatically publishes to npm.
 
+**IMPORTANT: Always test locally before pushing!**
+```bash
+# 0. Build and run locally to test
+npm run build && npm start
+# Test in Mattermost: https://digilab.overheid.nl/chat/digilab/channels/annes-claude-code-sessies
+# Kill the server when done testing (Ctrl+C)
+```
+
 ```bash
 # 1. Update CHANGELOG.md with the new version
 
