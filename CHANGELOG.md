@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-12-27
+
+### Added
+- WebSocket heartbeat to detect dead connections after laptop sleep/idle
+- Automatic reconnection when connection goes silent for 60+ seconds
+- Ping every 30 seconds to keep connection alive
+
+### Fixed
+- Connections no longer go "zombie" after laptop sleep - mm-claude now detects and reconnects
+
 ## [0.3.2] - 2025-12-27
 
 ### Fixed

@@ -30,6 +30,12 @@ export class MattermostClient extends EventEmitter {
   private botUserId: string | null = null;
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
+  // Heartbeat to detect dead connections
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  private lastMessageAt = Date.now();
+  private readonly PING_INTERVAL_MS = 30000; // Send ping every 30s
+  private readonly PING_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
+
   constructor(config: Config) {
     super();
     this.config = config;
@@ -141,6 +147,7 @@ export class MattermostClient extends EventEmitter {
       });
 
       this.ws.on('message', (data) => {
+        this.lastMessageAt = Date.now(); // Track activity for heartbeat
         try {
           const event = JSON.parse(data.toString()) as MattermostWebSocketEvent;
           this.handleEvent(event);
@@ -148,6 +155,7 @@ export class MattermostClient extends EventEmitter {
           // Authentication success
           if (event.event === 'hello') {
             this.reconnectAttempts = 0;
+            this.startHeartbeat();
             this.emit('connected');
             resolve();
           }
@@ -158,6 +166,7 @@ export class MattermostClient extends EventEmitter {
 
       this.ws.on('close', () => {
         this.log('WebSocket disconnected');
+        this.stopHeartbeat();
         this.emit('disconnected');
         this.scheduleReconnect();
       });
@@ -166,6 +175,11 @@ export class MattermostClient extends EventEmitter {
         this.log(`WebSocket error: ${err}`);
         this.emit('error', err);
         reject(err);
+      });
+
+      this.ws.on('pong', () => {
+        this.lastMessageAt = Date.now(); // Pong received, connection is alive
+        this.log('Pong received');
       });
     });
   }
@@ -231,6 +245,38 @@ export class MattermostClient extends EventEmitter {
         console.error(`  ❌ Reconnection failed: ${err}`);
       });
     }, delay);
+  }
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat(); // Clear any existing
+    this.lastMessageAt = Date.now();
+
+    this.pingInterval = setInterval(() => {
+      const silentFor = Date.now() - this.lastMessageAt;
+
+      // If no message received for too long, connection is dead
+      if (silentFor > this.PING_TIMEOUT_MS) {
+        console.log(`  💔 Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
+        this.stopHeartbeat();
+        if (this.ws) {
+          this.ws.terminate(); // Force close (triggers reconnect via 'close' event)
+        }
+        return;
+      }
+
+      // Send ping to keep connection alive and verify it's working
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.ping();
+        this.log(`Ping sent (last activity ${Math.round(silentFor / 1000)}s ago)`);
+      }
+    }, this.PING_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
   }
 
   // Check if user is allowed to use the bot
