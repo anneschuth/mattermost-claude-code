@@ -62,6 +62,7 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 | `src/mattermost/message-formatter.ts` | Converts Claude output (diffs, code, tasks) to Mattermost markdown |
 | `src/mattermost/types.ts` | Mattermost API types |
 | `src/mcp/permission-server.ts` | MCP server for handling permission prompts via Mattermost reactions |
+| `.github/workflows/publish.yml` | GitHub Actions workflow for automated npm publishing |
 
 ## How the Permission System Works
 
@@ -128,28 +129,34 @@ npm test             # (no tests yet)
 
 ## Publishing a New Version
 
-```bash
-# 1. Make sure working directory is clean
-git status
+Releases are automated via GitHub Actions. When you create a GitHub release, it automatically publishes to npm.
 
-# 2. Bump version (this commits and creates a git tag)
+```bash
+# 1. Update CHANGELOG.md with the new version
+
+# 2. Commit the changelog
+git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z"
+
+# 3. Bump version (this commits and creates a git tag)
 npm version patch   # 0.2.1 → 0.2.2
 npm version minor   # 0.2.1 → 0.3.0
 npm version major   # 0.2.1 → 1.0.0
 
-# 3. Publish to npm (requires automation token configured)
-npm publish
-
 # 4. Push to GitHub with tags
 git push && git push --tags
 
-# 5. Create GitHub release
+# 5. Create GitHub release (this triggers automatic npm publish)
 gh release create v0.x.x --title "v0.x.x" --generate-notes
 ```
 
-**npm Token Setup:**
-- Create a Classic Automation token at https://www.npmjs.com/settings/USERNAME/tokens
-- Store in `~/.npmrc`: `//registry.npmjs.org/:_authToken=npm_xxxx`
+**GitHub Actions Workflow:** `.github/workflows/publish.yml`
+- Triggered on: GitHub release published
+- Builds TypeScript and publishes to npm
+- Requires `NPM_TOKEN` secret in repository settings
+
+**npm Token Setup (already configured):**
+- Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
+- To update: https://github.com/anneschuth/mattermost-claude-code/settings/secrets/actions
 
 ## Common Issues & Solutions
 
