@@ -3,7 +3,17 @@
 [![npm version](https://img.shields.io/npm/v/mattermost-claude-code.svg)](https://www.npmjs.com/package/mattermost-claude-code)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Share your Claude Code sessions live in a public Mattermost channel. Your colleagues can watch you work with Claude Code in real-time, and authorized users can even trigger sessions from Mattermost.
+Share Claude Code sessions live in a Mattermost channel. Your colleagues can watch you work with Claude in real-time, collaborate on sessions, and even trigger their own sessions from Mattermost.
+
+## Features
+
+- **Real-time streaming** - Claude's responses stream live to Mattermost
+- **Multiple concurrent sessions** - Each thread gets its own Claude session
+- **Session collaboration** - Invite others to participate in your session
+- **Interactive permissions** - Approve Claude's actions via emoji reactions
+- **Plan approval** - Review and approve Claude's plans before execution
+- **Task tracking** - Live todo list updates as Claude works
+- **Code diffs** - See exactly what Claude is changing
 
 ## How it works
 
@@ -11,159 +21,242 @@ Share your Claude Code sessions live in a public Mattermost channel. Your collea
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Your Local Machine                          │
 │  ┌─────────────────┐         ┌─────────────────────────────┐   │
-│  │ Claude Code CLI │◄───────►│ This service                │   │
-│  │ (subprocess)    │ stdio   │ (Node.js)                   │   │
+│  │ Claude Code CLI │◀───────▶│ mm-claude                   │   │
+│  │ (subprocess)    │ stdio   │ (this service)              │   │
 │  └─────────────────┘         └──────────┬──────────────────┘   │
 └─────────────────────────────────────────┼───────────────────────┘
                                           │ WebSocket + REST API
-                                          ▼ (outbound only!)
+                                          ▼ (outbound only)
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Mattermost Server                           │
 │  ┌─────────────────┐         ┌─────────────────────────────┐   │
-│  │ Bot Account     │         │ Public Channel              │   │
-│  │ @claude-code    │◄───────►│ #claude-code-sessions       │   │
+│  │ Bot Account     │◀───────▶│ Channel                     │   │
+│  │ @claude-code    │         │ #claude-sessions            │   │
 │  └─────────────────┘         └─────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-This runs entirely on your local machine - it only makes **outbound** connections to Mattermost. No port forwarding or public IP needed!
+Runs entirely on your machine - only **outbound** connections to Mattermost. No port forwarding needed!
 
 ## Prerequisites
 
 1. **Claude Code CLI** installed and authenticated (`claude --version`)
 2. **Node.js 18+**
-3. **Mattermost bot account** with personal access token (ask your admin)
+3. **Mattermost bot account** with a personal access token
 
-## Installation
+## Quick Start
 
-### Option 1: npm (recommended)
+### 1. Install
+
 ```bash
 npm install -g mattermost-claude-code
 ```
 
-### Option 2: From source
-```bash
-git clone https://github.com/anneschuth/mattermost-claude-code.git
-cd mattermost-claude-code
-npm install
-npm run build
-npm link
-```
+### 2. Run
 
-## Configuration
-
-Create a config file at `~/.config/mm-claude/.env`:
-
-```bash
-mkdir -p ~/.config/mm-claude
-cp .env.example ~/.config/mm-claude/.env
-```
-
-Edit the config with your Mattermost details:
-   ```env
-   MATTERMOST_URL=https://your-mattermost.com
-   MATTERMOST_TOKEN=your-bot-token
-   MATTERMOST_CHANNEL_ID=your-channel-id
-   MATTERMOST_BOT_NAME=claude-code
-
-   ALLOWED_USERS=anne.schuth,colleague1
-
-   DEFAULT_WORKING_DIR=/path/to/your/project
-   ```
-
-## Running
-
-Navigate to your project directory and run:
 ```bash
 cd /your/project
 mm-claude
 ```
 
-With debug output:
-```bash
-mm-claude --debug
+On first run, an interactive setup wizard guides you through configuration:
+
+```
+Welcome to mm-claude!
+
+No configuration found. Let's set things up.
+
+You'll need:
+• A Mattermost bot account with a token
+• A channel ID where the bot will listen
+
+? Mattermost URL: https://your-mattermost.com
+? Bot token: ********
+? Channel ID: abc123def456
+? Bot mention name: claude-code
+? Allowed usernames: alice,bob
+? Skip permission prompts? No
+
+✓ Configuration saved!
+  ~/.config/mm-claude/.env
+
+Starting mm-claude...
 ```
 
-## Usage
+### 3. Use
 
-In your Mattermost channel, mention the bot to start a session:
+In Mattermost, mention the bot:
 
 ```
 @claude-code help me fix the bug in src/auth.ts
 ```
 
-The bot will:
-1. Post a session start message
-2. Stream Claude Code's responses in real-time
-3. Show tool activity (file reads, edits, bash commands)
-4. Post a session end message when complete
+## CLI Options
+
+```bash
+mm-claude [options]
+
+Options:
+  --url <url>            Mattermost server URL
+  --token <token>        Bot token
+  --channel <id>         Channel ID
+  --bot-name <name>      Bot mention name (default: claude-code)
+  --allowed-users <list> Comma-separated allowed usernames
+  --skip-permissions     Skip permission prompts (auto-approve)
+  --no-skip-permissions  Enable permission prompts (override env)
+  --debug                Enable debug logging
+  --version              Show version
+  --help                 Show help
+```
+
+CLI options override environment variables.
+
+## Session Collaboration
+
+### Invite Users
+
+Session owners can temporarily allow others to participate:
+
+```
+/invite @colleague
+```
+
+The colleague can now send messages in this session thread.
+
+### Kick Users
+
+Remove an invited user from the session:
+
+```
+/kick @colleague
+```
+
+### Message Approval
+
+When an unauthorized user sends a message in a session thread, the owner sees an approval prompt:
+
+```
+🔒 @unauthorized-user wants to send a message:
+> Can you also add error handling?
+
+React 👍 to allow this message, ✅ to invite them to the session, 👎 to deny
+```
+
+### Side Conversations
+
+Messages starting with `@someone-else` are ignored by the bot, allowing side conversations in the thread without triggering Claude.
 
 ## Interactive Features
 
-### Typing Indicator
-While Claude is thinking or working, you'll see the "is typing..." indicator in Mattermost.
+### Permission Approval
 
-### Plan Mode Approval
-When Claude enters plan mode and is ready to implement:
-- Bot posts an approval message with 👍/👎 reactions
-- React with 👍 to approve and start building
-- React with 👎 to request changes
-- Once approved, subsequent plan exits auto-continue
+When Claude wants to execute a tool (edit file, run command, etc.):
 
-### Questions with Emoji Reactions
-When Claude needs to ask questions:
-- Questions are posted one at a time (sequential flow)
-- Each question shows numbered options: 1️⃣ 2️⃣ 3️⃣ 4️⃣
-- React with the corresponding emoji to answer
-- After all questions are answered, Claude continues
+- **👍 Allow** - Approve this specific action
+- **✅ Allow all** - Approve all future actions this session
+- **👎 Deny** - Reject this action
 
-### Task List Display
-When Claude creates a todo list (TodoWrite):
-- Tasks are shown with status icons: ⬜ pending, 🔄 in progress, ✅ completed
-- The task list updates in place as Claude works
-- In-progress tasks show the active description
+To skip prompts: `mm-claude --skip-permissions` or set `SKIP_PERMISSIONS=true`
 
-### Subagent Status
-When Claude spawns subagents (Task tool):
-- Shows subagent type and description
-- Updates to ✅ completed when done
+### Plan Mode
 
-### Permission Approval via Reactions
-By default, Claude Code requests permission before executing tools. This service forwards these requests to Mattermost:
-- Permission requests are posted with 👍/✅/👎 reactions
-- 👍 **Allow this** - approve this specific tool use
-- ✅ **Allow all** - approve all future tool uses in this session
-- 👎 **Deny** - reject this tool use
+When Claude creates a plan and is ready to implement:
 
-To skip permission prompts (use with caution):
-```bash
-mm-claude --dangerously-skip-permissions
-# or set in .env:
-SKIP_PERMISSIONS=true
+- **👍** Approve and start building
+- **👎** Request changes
+
+Once approved, subsequent plans auto-continue.
+
+### Questions
+
+When Claude asks questions with multiple choice options:
+
+- React with 1️⃣ 2️⃣ 3️⃣ or 4️⃣ to answer
+- Questions are asked one at a time
+
+### Task List
+
+Claude's todo list shows live in Mattermost:
+
+- ⬜ Pending
+- 🔄 In progress
+- ✅ Completed
+
+### Session Header
+
+The session start message shows current status and updates when participants change:
+
+```
+🤖 mm-claude v0.5.1
+
+| | |
+|:--|:--|
+| 📂 Directory | ~/project |
+| 👤 Started by | @alice |
+| 👥 Participants | @bob, @carol |
+| 🔢 Session | #1 of 5 max |
+| 🔐 Permissions | Interactive |
 ```
 
-### Code Diffs and Previews
-- **Edit**: Shows actual diff with `-` old lines and `+` new lines
-- **Write**: Shows first 6 lines of content with line count
-- **Bash**: Shows the command being executed
-- **Read**: Shows the file path being read
-- **MCP tools**: Shows tool name and server (e.g., `🔌 get-library-docs *(context7)*`)
+### Cancel Session
+
+Stop a running session:
+
+- Type `/stop` or `/cancel` in the thread
+- React with ❌ or 🛑 to any message in the thread
 
 ## Access Control
 
-- **ALLOWED_USERS**: Comma-separated list of Mattermost usernames that can trigger Claude Code
-- If empty, anyone in the channel can use the bot (be careful!)
-- Non-authorized users get a polite rejection message
+Set `ALLOWED_USERS` to restrict who can use the bot:
 
-## Message to your Mattermost admin
+```env
+ALLOWED_USERS=alice,bob,carol
+```
 
-> "Kun je een bot account voor me aanmaken om Claude Code sessies te delen in een publiek kanaal?
-> Ik heb nodig: een bot account met posting rechten, een personal access token, en de bot toegevoegd aan [kanaal naam]."
+- Only listed users can start sessions
+- Only listed users can approve permissions
+- Session owners can `/invite` others temporarily
+- Empty = anyone can use (be careful!)
 
-Or in English:
+## Environment Variables
 
-> "Could you create a bot account for me to share Claude Code sessions in a public channel?
-> I need: bot account with posting permissions, a personal access token, and the bot added to [channel name]."
+| Variable | Description |
+|----------|-------------|
+| `MATTERMOST_URL` | Server URL |
+| `MATTERMOST_TOKEN` | Bot token |
+| `MATTERMOST_CHANNEL_ID` | Channel to listen in |
+| `MATTERMOST_BOT_NAME` | Mention name (default: `claude-code`) |
+| `ALLOWED_USERS` | Comma-separated usernames |
+| `SKIP_PERMISSIONS` | `true` to auto-approve actions |
+| `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
+| `SESSION_TIMEOUT_MS` | Idle timeout in ms (default: `1800000` = 30 min) |
+
+Config file locations (in priority order):
+1. `./.env` (current directory)
+2. `~/.config/mm-claude/.env`
+3. `~/.mm-claude.env`
+
+## Code Display
+
+- **Edit**: Shows diff with `-` removed and `+` added lines
+- **Write**: Shows preview of new file content
+- **Bash**: Shows command being executed
+- **Read**: Shows file path being read
+- **MCP tools**: Shows tool name and server
+
+## For Mattermost Admins
+
+To set up a bot account:
+
+1. Go to **Integrations > Bot Accounts > Add Bot Account**
+2. Give it a username (e.g., `claude-code`) and display name
+3. Create a **Personal Access Token** for the bot
+4. Add the bot to the channel where it should listen
+
+The bot needs permissions to:
+- Post messages
+- Add reactions
+- Read channel messages
 
 ## License
 
