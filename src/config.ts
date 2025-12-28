@@ -32,6 +32,8 @@ export function configExists(): boolean {
   return ENV_PATHS.some(p => existsSync(p));
 }
 
+export type WorktreeMode = 'off' | 'prompt' | 'require';
+
 /** CLI arguments that can override config */
 export interface CliArgs {
   url?: string;
@@ -41,6 +43,7 @@ export interface CliArgs {
   allowedUsers?: string;
   skipPermissions?: boolean;
   chrome?: boolean;
+  worktreeMode?: WorktreeMode;
 }
 
 export interface Config {
@@ -53,6 +56,7 @@ export interface Config {
   allowedUsers: string[];
   skipPermissions: boolean;
   chrome: boolean;
+  worktreeMode: WorktreeMode;
 }
 
 function getRequired(cliValue: string | undefined, envName: string, name: string): string {
@@ -98,6 +102,19 @@ export function loadConfig(cliArgs?: CliArgs): Config {
     chrome = process.env.CLAUDE_CHROME === 'true';
   }
 
+  // Worktree mode: CLI flag or env var, default to 'prompt'
+  let worktreeMode: WorktreeMode;
+  if (cliArgs?.worktreeMode !== undefined) {
+    worktreeMode = cliArgs.worktreeMode;
+  } else {
+    const envValue = process.env.WORKTREE_MODE?.toLowerCase();
+    if (envValue === 'off' || envValue === 'prompt' || envValue === 'require') {
+      worktreeMode = envValue;
+    } else {
+      worktreeMode = 'prompt'; // Default
+    }
+  }
+
   return {
     mattermost: {
       url: url.replace(/\/$/, ''), // Remove trailing slash
@@ -108,5 +125,6 @@ export function loadConfig(cliArgs?: CliArgs): Config {
     allowedUsers,
     skipPermissions,
     chrome,
+    worktreeMode,
   };
 }

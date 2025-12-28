@@ -16,8 +16,20 @@ import {
 import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
-import { SessionStore, PersistedSession } from '../persistence/session-store.js';
+import { SessionStore, PersistedSession, WorktreeInfo } from '../persistence/session-store.js';
 import { getMattermostLogo } from '../logo.js';
+import { WorktreeMode } from '../config.js';
+import {
+  isGitRepository,
+  getRepositoryRoot,
+  hasUncommittedChanges,
+  listWorktrees,
+  createWorktree,
+  removeWorktree as removeGitWorktree,
+  getWorktreeDir,
+  findWorktreeByBranch,
+  isValidBranchName,
+} from '../git/worktree.js';
 import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -123,6 +135,13 @@ interface Session {
 
   // Tool timing - track when tools started for elapsed time display
   activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
+
+  // Worktree support
+  worktreeInfo?: WorktreeInfo;              // Active worktree info
+  pendingWorktreePrompt?: boolean;          // Waiting for branch name response
+  worktreePromptDisabled?: boolean;         // User opted out with !worktree off
+  queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
 }
 
 
@@ -144,6 +163,7 @@ export class SessionManager {
   private workingDir: string;
   private skipPermissions: boolean;
   private chromeEnabled: boolean;
+  private worktreeMode: WorktreeMode;
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   // Multi-session storage
@@ -159,11 +179,12 @@ export class SessionManager {
   // Shutdown flag to suppress exit messages during graceful shutdown
   private isShuttingDown = false;
 
-  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false, chromeEnabled = false) {
+  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false, chromeEnabled = false, worktreeMode: WorktreeMode = 'prompt') {
     this.mattermost = mattermost;
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
+    this.worktreeMode = worktreeMode;
 
     // Listen for reactions to answer questions
     this.mattermost.on('reaction', async (reaction, user) => {
@@ -281,6 +302,11 @@ export class SessionManager {
       wasInterrupted: false,
       inProgressTaskStart: null,
       activeToolStarts: new Map(),
+      // Worktree state from persistence
+      worktreeInfo: state.worktreeInfo,
+      pendingWorktreePrompt: state.pendingWorktreePrompt,
+      worktreePromptDisabled: state.worktreePromptDisabled,
+      queuedPrompt: state.queuedPrompt,
     };
 
     // Register session
@@ -344,6 +370,11 @@ export class SessionManager {
       tasksPostId: session.tasksPostId,
       lastActivityAt: session.lastActivityAt.toISOString(),
       planApproved: session.planApproved,
+      // Worktree state
+      worktreeInfo: session.worktreeInfo,
+      pendingWorktreePrompt: session.pendingWorktreePrompt,
+      worktreePromptDisabled: session.worktreePromptDisabled,
+      queuedPrompt: session.queuedPrompt,
     };
     this.sessionStore.save(session.threadId, state);
     console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
@@ -527,12 +558,149 @@ export class SessionManager {
       return;
     }
 
+    // Check if we should prompt for worktree
+    const shouldPrompt = await this.shouldPromptForWorktree(session);
+    if (shouldPrompt) {
+      // Queue the original message and prompt for branch name
+      session.queuedPrompt = options.prompt;
+      session.pendingWorktreePrompt = true;
+      await this.postWorktreePrompt(session, shouldPrompt);
+      // Persist session with pending state
+      this.persistSession(session);
+      return; // Don't send message to Claude yet
+    }
+
     // Send the message to Claude (with images if present)
     const content = await this.buildMessageContent(options.prompt, options.files);
     claude.sendMessage(content);
 
     // Persist session for resume after restart
     this.persistSession(session);
+  }
+
+  /**
+   * Start a session with an initial worktree specified.
+   * Used when user specifies "on branch X" or "!worktree X" in their initial message.
+   */
+  async startSessionWithWorktree(
+    options: { prompt: string; files?: MattermostFile[] },
+    branch: string,
+    username: string,
+    replyToPostId?: string
+  ): Promise<void> {
+    // Start the session normally first
+    await this.startSession(options, username, replyToPostId);
+
+    // Get the thread ID
+    const threadId = replyToPostId || '';
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // If session has a pending worktree prompt (from startSession), skip it
+    if (session.pendingWorktreePrompt) {
+      session.pendingWorktreePrompt = false;
+      if (session.worktreePromptPostId) {
+        try {
+          await this.mattermost.updatePost(session.worktreePromptPostId,
+            `✅ Using branch \`${branch}\` (specified in message)`);
+        } catch (err) {
+          console.error('  ⚠️ Failed to update worktree prompt:', err);
+        }
+        session.worktreePromptPostId = undefined;
+      }
+    }
+
+    // Create the worktree
+    await this.createAndSwitchToWorktree(threadId, branch, username);
+  }
+
+  /**
+   * Check if we should prompt for a worktree before starting work.
+   * Returns the reason string if we should prompt, or null if not.
+   */
+  private async shouldPromptForWorktree(session: Session): Promise<string | null> {
+    // Skip if worktree mode is off
+    if (this.worktreeMode === 'off') return null;
+
+    // Skip if user disabled prompts for this session
+    if (session.worktreePromptDisabled) return null;
+
+    // Skip if already in a worktree
+    if (session.worktreeInfo) return null;
+
+    // Check if we're in a git repository
+    const isRepo = await isGitRepository(session.workingDir);
+    if (!isRepo) return null;
+
+    // For 'require' mode, always prompt
+    if (this.worktreeMode === 'require') {
+      return 'require';
+    }
+
+    // For 'prompt' mode, check conditions
+    // Condition 1: uncommitted changes
+    const hasChanges = await hasUncommittedChanges(session.workingDir);
+    if (hasChanges) return 'uncommitted';
+
+    // Condition 2: another session using the same repo
+    const repoRoot = await getRepositoryRoot(session.workingDir);
+    const hasConcurrent = this.hasOtherSessionInRepo(repoRoot, session.threadId);
+    if (hasConcurrent) return 'concurrent';
+
+    return null;
+  }
+
+  /**
+   * Check if another session is using the same repository
+   */
+  private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
+    for (const [threadId, session] of this.sessions) {
+      if (threadId === excludeThreadId) continue;
+      // Check if session's working directory is in the same repo
+      // (either the repo root or a worktree of the same repo)
+      if (session.workingDir === repoRoot) return true;
+      if (session.worktreeInfo?.repoRoot === repoRoot) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Post the worktree prompt message
+   */
+  private async postWorktreePrompt(session: Session, reason: string): Promise<void> {
+    let message: string;
+    switch (reason) {
+      case 'uncommitted':
+        message = `🌿 **This repo has uncommitted changes.**\n` +
+          `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue in the main repo.`;
+        break;
+      case 'concurrent':
+        message = `⚠️ **Another session is already using this repo.**\n` +
+          `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue anyway.`;
+        break;
+      case 'require':
+        message = `🌿 **This deployment requires working in a worktree.**\n` +
+          `Please reply with a branch name to continue.`;
+        break;
+      default:
+        message = `🌿 **Would you like to work in an isolated worktree?**\n` +
+          `Reply with a branch name, or react with ❌ to continue in the main repo.`;
+    }
+
+    // Create post with ❌ reaction option (except for 'require' mode)
+    const reactionOptions = reason === 'require' ? [] : ['❌'];
+    const post = await this.mattermost.createInteractivePost(
+      message,
+      reactionOptions,
+      session.threadId
+    );
+
+    // Track the post for reaction handling
+    session.worktreePromptPostId = post.id;
+    this.registerPost(post.id, session.threadId);
+
+    // Stop typing while waiting for response
+    this.stopTyping(session);
   }
 
   private handleEvent(threadId: string, event: ClaudeEvent): void {
@@ -820,6 +988,13 @@ export class SessionManager {
     // Find the session this post belongs to
     const session = this.getSessionByPost(postId);
     if (!session) return;
+
+    // Handle ❌ on worktree prompt (skip worktree, continue in main repo)
+    // Must be checked BEFORE cancel reaction handler since ❌ is also a cancel emoji
+    if (session.worktreePromptPostId === postId && emojiName === 'x') {
+      await this.handleWorktreeSkip(session.threadId, username);
+      return;
+    }
 
     // Handle cancel reactions (❌ or 🛑) on any post in the session
     if (isCancelEmoji(emojiName)) {
@@ -1155,7 +1330,40 @@ export class SessionManager {
 
     // Mattermost has a 16,383 character limit for posts
     const MAX_POST_LENGTH = 16000;  // Leave some margin
+    const CONTINUATION_THRESHOLD = 14000;  // Start new message before we hit the limit
+
+    // Check if we need to start a new message due to length
+    if (session.currentPostId && content.length > CONTINUATION_THRESHOLD) {
+      // Finalize the current post with what we have up to the threshold
+      // Find a good break point (end of line) near the threshold
+      let breakPoint = content.lastIndexOf('\n', CONTINUATION_THRESHOLD);
+      if (breakPoint < CONTINUATION_THRESHOLD * 0.7) {
+        // If we can't find a good line break, just break at the threshold
+        breakPoint = CONTINUATION_THRESHOLD;
+      }
+
+      const firstPart = content.substring(0, breakPoint).trim() + '\n\n*... (continued below)*';
+      const remainder = content.substring(breakPoint).trim();
+
+      // Update the current post with the first part
+      await this.mattermost.updatePost(session.currentPostId, firstPart);
+
+      // Start a new post for the continuation
+      session.currentPostId = null;
+      session.pendingContent = remainder;
+
+      // Create the continuation post if there's content
+      if (remainder) {
+        const post = await this.mattermost.createPost('*(continued)*\n\n' + remainder, session.threadId);
+        session.currentPostId = post.id;
+        this.registerPost(post.id, session.threadId);
+      }
+      return;
+    }
+
+    // Normal case: content fits in current post
     if (content.length > MAX_POST_LENGTH) {
+      // Safety truncation if we somehow got content that's still too long
       content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
     }
 
@@ -1740,6 +1948,12 @@ export class SessionManager {
       `| 👤 **Started by** | @${session.startedBy} |`,
     ];
 
+    // Show worktree info if active
+    if (session.worktreeInfo) {
+      const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
+      rows.push(`| 🌿 **Worktree** | \`${session.worktreeInfo.branch}\` (from \`${shortRepoRoot}\`) |`);
+    }
+
     if (otherParticipants) {
       rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
     }
@@ -1803,6 +2017,418 @@ export class SessionManager {
     };
 
     this.registerPost(post.id, threadId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Worktree Management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle a worktree branch response from user.
+   * Called when user replies with a branch name to the worktree prompt.
+   */
+  async handleWorktreeBranchResponse(threadId: string, branchName: string, username: string): Promise<boolean> {
+    const session = this.sessions.get(threadId);
+    if (!session || !session.pendingWorktreePrompt) return false;
+
+    // Only session owner can respond
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      return false;
+    }
+
+    // Validate branch name
+    if (!isValidBranchName(branchName)) {
+      await this.mattermost.createPost(
+        `❌ Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`,
+        threadId
+      );
+      return true; // We handled it, but need another response
+    }
+
+    // Create and switch to worktree
+    await this.createAndSwitchToWorktree(threadId, branchName, username);
+    return true;
+  }
+
+  /**
+   * Handle ❌ reaction on worktree prompt - skip worktree and continue in main repo.
+   */
+  async handleWorktreeSkip(threadId: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session || !session.pendingWorktreePrompt) return;
+
+    // Only session owner can skip
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      return;
+    }
+
+    // Update the prompt post
+    if (session.worktreePromptPostId) {
+      try {
+        await this.mattermost.updatePost(session.worktreePromptPostId,
+          `✅ Continuing in main repo (skipped by @${username})`);
+      } catch (err) {
+        console.error('  ⚠️ Failed to update worktree prompt:', err);
+      }
+    }
+
+    // Clear pending state
+    session.pendingWorktreePrompt = false;
+    session.worktreePromptPostId = undefined;
+    const queuedPrompt = session.queuedPrompt;
+    session.queuedPrompt = undefined;
+
+    // Persist updated state
+    this.persistSession(session);
+
+    // Now send the queued message to Claude
+    if (queuedPrompt && session.claude.isRunning()) {
+      session.claude.sendMessage(queuedPrompt);
+      this.startTyping(session);
+    }
+  }
+
+  /**
+   * Create a new worktree and switch the session to it.
+   */
+  async createAndSwitchToWorktree(threadId: string, branch: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or admins can manage worktrees
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
+        threadId
+      );
+      return;
+    }
+
+    // Check if we're in a git repo
+    const isRepo = await isGitRepository(session.workingDir);
+    if (!isRepo) {
+      await this.mattermost.createPost(
+        `❌ Current directory is not a git repository`,
+        threadId
+      );
+      return;
+    }
+
+    // Get repo root
+    const repoRoot = await getRepositoryRoot(session.workingDir);
+
+    // Check if worktree already exists for this branch
+    const existing = await findWorktreeByBranch(repoRoot, branch);
+    if (existing && !existing.isMain) {
+      await this.mattermost.createPost(
+        `⚠️ Worktree for branch \`${branch}\` already exists at \`${existing.path}\`. Use \`!worktree switch ${branch}\` to switch to it.`,
+        threadId
+      );
+      return;
+    }
+
+    const shortId = threadId.substring(0, 8);
+    console.log(`  🌿 Session (${shortId}…) creating worktree for branch ${branch}`);
+
+    // Generate worktree path
+    const worktreePath = getWorktreeDir(repoRoot, branch);
+
+    try {
+      // Create the worktree
+      await createWorktree(repoRoot, branch, worktreePath);
+
+      // Update the prompt post if it exists
+      if (session.worktreePromptPostId) {
+        try {
+          await this.mattermost.updatePost(session.worktreePromptPostId,
+            `✅ Created worktree for \`${branch}\``);
+        } catch (err) {
+          console.error('  ⚠️ Failed to update worktree prompt:', err);
+        }
+      }
+
+      // Clear pending state
+      const wasPending = session.pendingWorktreePrompt;
+      session.pendingWorktreePrompt = false;
+      session.worktreePromptPostId = undefined;
+      const queuedPrompt = session.queuedPrompt;
+      session.queuedPrompt = undefined;
+
+      // Store worktree info
+      session.worktreeInfo = {
+        repoRoot,
+        worktreePath,
+        branch,
+      };
+
+      // Update working directory
+      session.workingDir = worktreePath;
+
+      // If Claude is already running, restart it in the new directory
+      if (session.claude.isRunning()) {
+        this.stopTyping(session);
+        session.isRestarting = true;
+        session.claude.kill();
+
+        // Flush any pending content
+        await this.flush(session);
+        session.currentPostId = null;
+        session.pendingContent = '';
+
+        // Create new CLI with new working directory
+        const cliOptions: ClaudeCliOptions = {
+          workingDir: worktreePath,
+          threadId: threadId,
+          skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
+          sessionId: session.claudeSessionId,
+          resume: true,
+          chrome: this.chromeEnabled,
+        };
+        session.claude = new ClaudeCli(cliOptions);
+
+        // Rebind event handlers
+        session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
+        session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
+
+        // Start the new CLI
+        session.claude.start();
+      }
+
+      // Update session header
+      await this.updateSessionHeader(session);
+
+      // Post confirmation
+      const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
+      await this.mattermost.createPost(
+        `✅ **Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`,
+        threadId
+      );
+
+      // Update activity and persist
+      session.lastActivityAt = new Date();
+      session.timeoutWarningPosted = false;
+      this.persistSession(session);
+
+      // If there was a queued prompt (from initial session start), send it now
+      if (wasPending && queuedPrompt && session.claude.isRunning()) {
+        session.claude.sendMessage(queuedPrompt);
+        this.startTyping(session);
+      }
+
+      console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
+    } catch (err) {
+      console.error(`  ❌ Failed to create worktree:`, err);
+      await this.mattermost.createPost(
+        `❌ Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
+        threadId
+      );
+    }
+  }
+
+  /**
+   * Switch to an existing worktree.
+   */
+  async switchToWorktree(threadId: string, branchOrPath: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or admins can manage worktrees
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
+        threadId
+      );
+      return;
+    }
+
+    // Get current repo root
+    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
+
+    // Find the worktree
+    const worktrees = await listWorktrees(repoRoot);
+    const target = worktrees.find(wt =>
+      wt.branch === branchOrPath ||
+      wt.path === branchOrPath ||
+      wt.path.endsWith(branchOrPath)
+    );
+
+    if (!target) {
+      await this.mattermost.createPost(
+        `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
+        threadId
+      );
+      return;
+    }
+
+    // Use changeDirectory logic to switch
+    await this.changeDirectory(threadId, target.path, username);
+
+    // Update worktree info
+    session.worktreeInfo = {
+      repoRoot,
+      worktreePath: target.path,
+      branch: target.branch,
+    };
+
+    // Update session header
+    await this.updateSessionHeader(session);
+    this.persistSession(session);
+  }
+
+  /**
+   * List all worktrees for the current repository.
+   */
+  async listWorktreesCommand(threadId: string, _username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Check if we're in a git repo
+    const isRepo = await isGitRepository(session.workingDir);
+    if (!isRepo) {
+      await this.mattermost.createPost(
+        `❌ Current directory is not a git repository`,
+        threadId
+      );
+      return;
+    }
+
+    // Get repo root (either from worktree info or current dir)
+    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
+    const worktrees = await listWorktrees(repoRoot);
+
+    if (worktrees.length === 0) {
+      await this.mattermost.createPost(
+        `📋 No worktrees found for this repository`,
+        threadId
+      );
+      return;
+    }
+
+    const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
+    let message = `📋 **Worktrees for** \`${shortRepoRoot}\`:\n\n`;
+
+    for (const wt of worktrees) {
+      const shortPath = wt.path.replace(process.env.HOME || '', '~');
+      const isCurrent = session.workingDir === wt.path;
+      const marker = isCurrent ? ' ← current' : '';
+      const label = wt.isMain ? '(main repository)' : '';
+      message += `• \`${wt.branch}\` → \`${shortPath}\` ${label}${marker}\n`;
+    }
+
+    await this.mattermost.createPost(message, threadId);
+  }
+
+  /**
+   * Remove a worktree.
+   */
+  async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or admins can manage worktrees
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
+        threadId
+      );
+      return;
+    }
+
+    // Get current repo root
+    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
+
+    // Find the worktree
+    const worktrees = await listWorktrees(repoRoot);
+    const target = worktrees.find(wt =>
+      wt.branch === branchOrPath ||
+      wt.path === branchOrPath ||
+      wt.path.endsWith(branchOrPath)
+    );
+
+    if (!target) {
+      await this.mattermost.createPost(
+        `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
+        threadId
+      );
+      return;
+    }
+
+    // Can't remove the main repository
+    if (target.isMain) {
+      await this.mattermost.createPost(
+        `❌ Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`,
+        threadId
+      );
+      return;
+    }
+
+    // Can't remove the current working directory
+    if (session.workingDir === target.path) {
+      await this.mattermost.createPost(
+        `❌ Cannot remove the current working directory. Switch to another worktree first.`,
+        threadId
+      );
+      return;
+    }
+
+    try {
+      await removeGitWorktree(repoRoot, target.path);
+
+      const shortPath = target.path.replace(process.env.HOME || '', '~');
+      await this.mattermost.createPost(
+        `✅ Removed worktree \`${target.branch}\` at \`${shortPath}\``,
+        threadId
+      );
+
+      console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
+    } catch (err) {
+      console.error(`  ❌ Failed to remove worktree:`, err);
+      await this.mattermost.createPost(
+        `❌ Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
+        threadId
+      );
+    }
+  }
+
+  /**
+   * Disable worktree prompts for a session.
+   */
+  async disableWorktreePrompt(threadId: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or admins can manage worktrees
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
+        threadId
+      );
+      return;
+    }
+
+    session.worktreePromptDisabled = true;
+    this.persistSession(session);
+
+    await this.mattermost.createPost(
+      `✅ Worktree prompts disabled for this session`,
+      threadId
+    );
+  }
+
+  /**
+   * Check if a session has a pending worktree prompt.
+   */
+  hasPendingWorktreePrompt(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    return session?.pendingWorktreePrompt === true;
+  }
+
+  /**
+   * Get the worktree prompt post ID for a session.
+   */
+  getWorktreePromptPostId(threadId: string): string | undefined {
+    const session = this.sessions.get(threadId);
+    return session?.worktreePromptPostId;
   }
 
   /** Kill all active sessions (for graceful shutdown) */

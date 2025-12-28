@@ -3,6 +3,15 @@ import { homedir } from 'os';
 import { join } from 'path';
 
 /**
+ * Worktree information for a session
+ */
+export interface WorktreeInfo {
+  repoRoot: string;      // Original git repo path
+  worktreePath: string;  // Current worktree path
+  branch: string;        // Branch name
+}
+
+/**
  * Persisted session state for resuming after bot restart
  */
 export interface PersistedSession {
@@ -18,6 +27,11 @@ export interface PersistedSession {
   tasksPostId: string | null;
   lastActivityAt: string;        // For stale cleanup
   planApproved: boolean;
+  // Worktree support
+  worktreeInfo?: WorktreeInfo;              // Active worktree info
+  pendingWorktreePrompt?: boolean;          // Waiting for branch name response
+  worktreePromptDisabled?: boolean;         // User opted out with !worktree off
+  queuedPrompt?: string;                    // User's original message when waiting for worktree response
 }
 
 interface SessionStoreData {

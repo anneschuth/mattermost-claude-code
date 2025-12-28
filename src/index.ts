@@ -91,7 +91,7 @@ async function main() {
   console.log('');
 
   const mattermost = new MattermostClient(config);
-  const session = new SessionManager(mattermost, workingDir, config.skipPermissions, config.chrome);
+  const session = new SessionManager(mattermost, workingDir, config.skipPermissions, config.chrome, config.worktreeMode);
 
   mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
     try {
@@ -164,6 +164,11 @@ async function main() {
           `| \`!cost\` | Show token usage and cost for this session |\n` +
           `| \`!compact\` | Compress context to free up space |\n` +
           `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
+          `| \`!worktree <branch>\` | Create and switch to a git worktree |\n` +
+          `| \`!worktree list\` | List all worktrees for the repo |\n` +
+          `| \`!worktree switch <branch>\` | Switch to an existing worktree |\n` +
+          `| \`!worktree remove <branch>\` | Remove a worktree |\n` +
+          `| \`!worktree off\` | Disable worktree prompts for this session |\n` +
           `| \`!invite @user\` | Invite a user to this session |\n` +
           `| \`!kick @user\` | Remove an invited user |\n` +
           `| \`!permissions interactive\` | Enable interactive permissions |\n` +
@@ -228,6 +233,49 @@ async function main() {
       if (cdMatch) {
         await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
         return;
+      }
+
+      // Check for !worktree command
+      const worktreeMatch = content.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
+      if (worktreeMatch) {
+        const subcommand = worktreeMatch[1].toLowerCase();
+        const args = worktreeMatch[2]?.trim();
+
+        switch (subcommand) {
+          case 'list':
+            await session.listWorktreesCommand(threadRoot, username);
+            break;
+          case 'switch':
+            if (!args) {
+              await mattermost.createPost('❌ Usage: `!worktree switch <branch>`', threadRoot);
+            } else {
+              await session.switchToWorktree(threadRoot, args, username);
+            }
+            break;
+          case 'remove':
+            if (!args) {
+              await mattermost.createPost('❌ Usage: `!worktree remove <branch>`', threadRoot);
+            } else {
+              await session.removeWorktreeCommand(threadRoot, args, username);
+            }
+            break;
+          case 'off':
+            await session.disableWorktreePrompt(threadRoot, username);
+            break;
+          default:
+            // Treat as branch name: !worktree feature/foo
+            await session.createAndSwitchToWorktree(threadRoot, subcommand, username);
+        }
+        return;
+      }
+
+      // Check for pending worktree prompt - treat message as branch name response
+      if (session.hasPendingWorktreePrompt(threadRoot)) {
+        // Only session owner can respond
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          const handled = await session.handleWorktreeBranchResponse(threadRoot, content, username);
+          if (handled) return;
+        }
       }
 
       // Check for Claude Code slash commands (translate ! to /)
@@ -300,6 +348,16 @@ async function main() {
 
     if (!prompt && !files?.length) {
       await mattermost.createPost(`Mention me with your request`, threadRoot);
+      return;
+    }
+
+    // Check for inline branch syntax: "on branch X" or "!worktree X"
+    const branchMatch = prompt.match(/(?:on branch|!worktree)\s+(\S+)/i);
+    if (branchMatch) {
+      const branch = branchMatch[1];
+      // Remove the branch specification from the prompt
+      const cleanedPrompt = prompt.replace(/(?:on branch|!worktree)\s+\S+/i, '').trim();
+      await session.startSessionWithWorktree({ prompt: cleanedPrompt || prompt, files }, branch, username, threadRoot);
       return;
     }
 
