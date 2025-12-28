@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.11] - 2025-12-28
+
+### Fixed
+- **Permission prompts now update after approval/denial** - Shows result inline
+  - "⚠️ Permission requested" → "✅ Allowed by @user" or "❌ Denied by @user"
+  - Consistent with plan approval and message approval behavior
+
 ## [0.10.10] - 2025-12-28
 
 ### Fixed

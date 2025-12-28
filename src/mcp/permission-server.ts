@@ -32,6 +32,7 @@ import {
   getMe,
   getUser,
   createInteractivePost,
+  updatePost,
   isUserAllowed,
   MattermostApiConfig,
 } from '../mattermost/api.js';
@@ -205,16 +206,19 @@ async function handlePermission(
     );
 
     // Wait for user's reaction
-    const { emoji } = await waitForReaction(post.id);
+    const { emoji, username } = await waitForReaction(post.id);
 
     if (isApprovalEmoji(emoji)) {
+      await updatePost(apiConfig, post.id, `✅ **Allowed** by @${username}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
     } else if (isAllowAllEmoji(emoji)) {
       allowAllSession = true;
+      await updatePost(apiConfig, post.id, `✅ **Allowed all** by @${username}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed all: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
     } else {
+      await updatePost(apiConfig, post.id, `❌ **Denied** by @${username}\n\n${toolInfo}`);
       mcpLogger.info(`Denied: ${toolName}`);
       return { behavior: 'deny', message: 'User denied permission' };
     }
