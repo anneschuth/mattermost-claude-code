@@ -20,6 +20,11 @@ export interface MattermostClientEvents {
   reaction: (reaction: MattermostReaction, user: MattermostUser | null) => void;
 }
 
+// Escape special regex characters to prevent regex injection
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class MattermostClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private config: Config;
@@ -290,7 +295,7 @@ export class MattermostClient extends EventEmitter {
 
   // Check if message mentions the bot
   isBotMentioned(message: string): boolean {
-    const botName = this.config.mattermost.botName;
+    const botName = escapeRegExp(this.config.mattermost.botName);
     // Match @botname at start or with space before
     const mentionPattern = new RegExp(`(^|\\s)@${botName}\\b`, 'i');
     return mentionPattern.test(message);
@@ -298,7 +303,7 @@ export class MattermostClient extends EventEmitter {
 
   // Extract prompt from message (remove bot mention)
   extractPrompt(message: string): string {
-    const botName = this.config.mattermost.botName;
+    const botName = escapeRegExp(this.config.mattermost.botName);
     return message
       .replace(new RegExp(`(^|\\s)@${botName}\\b`, 'gi'), ' ')
       .trim();
