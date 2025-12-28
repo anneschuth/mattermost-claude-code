@@ -87,7 +87,8 @@ async function main() {
     // Follow-up in active thread
     if (session.isInSessionThread(threadRoot)) {
       // If message starts with @mention to someone else, ignore it (side conversation)
-      const mentionMatch = message.trim().match(/^@(\w+)/);
+      // Note: Mattermost usernames can contain letters, numbers, hyphens, periods, and underscores
+      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== mattermost.getBotName().toLowerCase()) {
         return; // Side conversation, don't interrupt
       }
