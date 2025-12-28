@@ -183,6 +183,12 @@ gh release create v0.x.x --title "v0.x.x" --generate-notes
 - Builds TypeScript and publishes to npm
 - Requires `NPM_TOKEN` secret in repository settings
 
+**⚠️ IMPORTANT: NEVER modify the workflow trigger!**
+- The workflow MUST trigger on `release: types: [published]`
+- NEVER change it to trigger on tag pushes
+- The user creates releases manually via `gh release create`
+- This is the preferred release workflow - do not change it
+
 **npm Token Setup (already configured):**
 - Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
 - To update: https://github.com/anneschuth/mattermost-claude-code/settings/secrets/actions
