@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2025-12-28
+
+### Fixed
+- **Major fix for session persistence** - completely rewrote session lifecycle management
+  - Sessions now correctly survive bot restarts (was broken in 0.9.0-0.9.2)
+  - `killAllSessions()` now explicitly preserves persistence instead of relying on exit event timing
+  - `killSession()` now takes an `unpersist` parameter to control persistence behavior
+  - `handleExit()` now only unpersists on graceful exits (code 0), not on errors
+  - Resumed sessions that fail are preserved for retry instead of being removed
+  - Added comprehensive debug logging to trace session lifecycle
+  - Race condition between shutdown and exit events eliminated
+
 ## [0.9.2] - 2025-12-28
 
 ### Fixed

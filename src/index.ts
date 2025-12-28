@@ -252,6 +252,9 @@ async function main() {
     console.log('');
     console.log(`  👋 ${dim('Shutting down...')}`);
 
+    // Set shutdown flag FIRST to prevent race conditions with exit events
+    session.setShuttingDown();
+
     // Post shutdown message to active sessions
     const activeThreads = session.getActiveThreadIds();
     if (activeThreads.length > 0) {

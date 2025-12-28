@@ -306,6 +306,8 @@ export class SessionManager {
    * Persist a session to disk
    */
   private persistSession(session: Session): void {
+    const shortId = session.threadId.substring(0, 8);
+    console.log(`  [persist] Saving session ${shortId}...`);
     const state: PersistedSession = {
       threadId: session.threadId,
       claudeSessionId: session.claudeSessionId,
@@ -321,20 +323,15 @@ export class SessionManager {
       planApproved: session.planApproved,
     };
     this.sessionStore.save(session.threadId, state);
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
-    }
+    console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
   }
 
   /**
    * Remove a session from persistence
    */
   private unpersistSession(threadId: string): void {
-    if (this.debug) {
-      const shortId = threadId.substring(0, 8);
-      console.log(`  [persist] Removing session ${shortId}...`);
-    }
+    const shortId = threadId.substring(0, 8);
+    console.log(`  [persist] REMOVING session ${shortId}... (this should NOT happen during shutdown!)`);
     this.sessionStore.remove(threadId);
   }
 
@@ -360,6 +357,12 @@ export class SessionManager {
   /** Get all active session thread IDs */
   getActiveThreadIds(): string[] {
     return [...this.sessions.keys()];
+  }
+
+  /** Mark that we're shutting down (prevents cleanup of persisted sessions) */
+  setShuttingDown(): void {
+    console.log('  [shutdown] Setting isShuttingDown = true');
+    this.isShuttingDown = true;
   }
 
   /** Register a post for reaction routing */
@@ -1163,25 +1166,59 @@ export class SessionManager {
     const session = this.sessions.get(threadId);
     const shortId = threadId.substring(0, 8);
 
+    // Always log exit events to trace the flow
+    console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${this.isShuttingDown}`);
+
     if (!session) {
-      if (this.debug) console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
+      console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
       return;
     }
 
     // If we're intentionally restarting (e.g., !cd), don't clean up or post exit message
     if (session.isRestarting) {
-      if (this.debug) console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
+      console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
       session.isRestarting = false;  // Reset flag here, after the exit event fires
       return;
     }
 
     // If bot is shutting down, suppress exit messages (shutdown message already sent)
+    // IMPORTANT: Check this flag FIRST before any cleanup. The session should remain
+    // persisted so it can be resumed after restart.
     if (this.isShuttingDown) {
-      if (this.debug) console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
+      console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
+      // Still clean up from in-memory maps since we're shutting down anyway
+      this.stopTyping(session);
+      if (session.updateTimer) {
+        clearTimeout(session.updateTimer);
+        session.updateTimer = null;
+      }
+      this.sessions.delete(threadId);
       return;
     }
 
-    if (this.debug) console.log(`  [exit] Session ${shortId}... exited with code ${code}, cleaning up`);
+    // For resumed sessions that exit quickly (e.g., Claude --resume fails),
+    // don't unpersist immediately - give it a chance to be retried
+    if (session.isResumed && code !== 0) {
+      console.log(`  [exit] Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
+      this.stopTyping(session);
+      if (session.updateTimer) {
+        clearTimeout(session.updateTimer);
+        session.updateTimer = null;
+      }
+      this.sessions.delete(threadId);
+      // Post error message but keep persistence
+      try {
+        await this.mattermost.createPost(
+          `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
+          session.threadId
+        );
+      } catch {
+        // Ignore if we can't post
+      }
+      return;
+    }
+
+    console.log(`  [exit] Session ${shortId}... normal exit, cleaning up`);
 
     this.stopTyping(session);
     if (session.updateTimer) {
@@ -1203,8 +1240,13 @@ export class SessionManager {
       }
     }
 
-    // Remove from persistence when session ends normally
-    this.unpersistSession(threadId);
+    // Only unpersist for normal exits (code 0 or null means graceful completion)
+    // Non-zero exits might be recoverable, so we keep the session persisted
+    if (code === 0 || code === null) {
+      this.unpersistSession(threadId);
+    } else {
+      console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
+    }
 
     console.log(`  ■ Session ended (${shortId}…) — ${this.sessions.size} active`);
   }
@@ -1235,9 +1277,17 @@ export class SessionManager {
   }
 
   /** Kill a specific session */
-  killSession(threadId: string): void {
+  killSession(threadId: string, unpersist = true): void {
     const session = this.sessions.get(threadId);
     if (!session) return;
+
+    const shortId = threadId.substring(0, 8);
+
+    // Set restarting flag to prevent handleExit from also unpersisting
+    // (we'll do it explicitly here if requested)
+    if (!unpersist) {
+      session.isRestarting = true;  // Reuse this flag to skip cleanup in handleExit
+    }
 
     this.stopTyping(session);
     session.claude.kill();
@@ -1249,7 +1299,12 @@ export class SessionManager {
         this.postIndex.delete(postId);
       }
     }
-    const shortId = threadId.substring(0, 8);
+
+    // Explicitly unpersist if requested (e.g., for timeout, cancel, etc.)
+    if (unpersist) {
+      this.unpersistSession(threadId);
+    }
+
     console.log(`  ✖ Session killed (${shortId}…) — ${this.sessions.size} active`);
   }
 
@@ -1592,22 +1647,28 @@ export class SessionManager {
 
   /** Kill all active sessions (for graceful shutdown) */
   killAllSessions(): void {
-    // Set shutdown flag to suppress exit messages
+    console.log(`  [shutdown] killAllSessions called, isShuttingDown already=${this.isShuttingDown}`);
+    // Set shutdown flag to suppress exit messages (should already be true from setShuttingDown)
     this.isShuttingDown = true;
 
     const count = this.sessions.size;
-    for (const [, session] of this.sessions.entries()) {
-      this.stopTyping(session);
-      session.claude.kill();
+    console.log(`  [shutdown] About to kill ${count} session(s) (preserving persistence for resume)`);
+
+    // Kill each session WITHOUT unpersisting - we want them to resume after restart
+    for (const [threadId] of this.sessions.entries()) {
+      this.killSession(threadId, false);  // false = don't unpersist
     }
+
+    // Maps should already be cleared by killSession, but clear again to be safe
     this.sessions.clear();
     this.postIndex.clear();
+
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
     if (count > 0) {
-      console.log(`  ✖ Killed ${count} session${count === 1 ? '' : 's'}`);
+      console.log(`  ✖ Killed ${count} session${count === 1 ? '' : 's'} (sessions preserved for resume)`);
     }
   }
 
