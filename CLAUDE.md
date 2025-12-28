@@ -198,6 +198,40 @@ gh release create v0.x.x --title "v0.x.x" --generate-notes
 - Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
 - To update: https://github.com/anneschuth/mattermost-claude-code/settings/secrets/actions
 
+## Testing Deployed Versions in Mattermost
+
+After deploying a new version, test it in the Mattermost channel:
+https://digilab.overheid.nl/chat/digilab/channels/annes-claude-code-sessies
+
+### Basic Verification
+1. **Check version**: `@minion-of-anne what version are you running?`
+   - Bot should respond with version number and summary of recent changes
+   - Verify the session header shows correct version
+
+### Testing Permission System
+1. **Start a new session** (existing sessions keep their original permission mode)
+2. **Enable interactive permissions**: `!permissions interactive`
+   - Should see: "🔐 **Interactive permissions enabled** ... *Claude Code restarted with permission prompts*"
+   - Session header should update to show "Permissions: Interactive"
+3. **Test permission prompt**: `@minion-of-anne write "test" to /tmp/perm-test.txt`
+   - Should see a permission prompt with reaction options: 👍 ✅ 👎
+   - React with 👍 to approve
+   - File should be written after approval
+
+### Testing Other Features
+- **Session collaboration**: `!invite @username` / `!kick @username`
+- **Directory change**: `!cd /some/path` (restarts Claude CLI)
+- **Interrupt**: `!escape` or ⏸️ reaction (interrupts without killing)
+- **Cancel**: `!stop` or ❌/🛑 reaction (kills the session)
+- **Plan approval**: When Claude presents a plan, react with 👍/👎
+- **Question answering**: When Claude asks questions, react with number emojis
+
+### Verifying Specific Bug Fixes
+When testing a specific fix:
+1. Reproduce the original bug scenario
+2. Verify the fix works as expected
+3. Check for regressions in related functionality
+
 ## Common Issues & Solutions
 
 ### "Permission server not responding"
