@@ -148,6 +148,15 @@ export class MattermostClient extends EventEmitter {
     return this.api<import('./types.js').MattermostFile>('GET', `/files/${fileId}/info`);
   }
 
+  // Get a post by ID (used to verify thread still exists on resume)
+  async getPost(postId: string): Promise<MattermostPost | null> {
+    try {
+      return await this.api<MattermostPost>('GET', `/posts/${postId}`);
+    } catch {
+      return null; // Post doesn't exist or was deleted
+    }
+  }
+
   // Connect to WebSocket
   async connect(): Promise<void> {
     // Get bot user first

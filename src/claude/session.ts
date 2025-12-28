@@ -3,6 +3,8 @@ import { MattermostClient } from '../mattermost/client.js';
 import { MattermostFile } from '../mattermost/types.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
+import { SessionStore, PersistedSession } from '../persistence/session-store.js';
+import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -52,6 +54,7 @@ interface PendingMessageApproval {
 interface Session {
   // Identity
   threadId: string;
+  claudeSessionId: string;  // UUID for --session-id / --resume
   startedBy: string;
   startedAt: Date;
   lastActivityAt: Date;
@@ -93,6 +96,9 @@ interface Session {
 
   // Flag to suppress exit message during intentional restart (e.g., !cd)
   isRestarting: boolean;
+
+  // Flag to track if this session was resumed after bot restart
+  isResumed: boolean;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -126,6 +132,9 @@ export class SessionManager {
   private sessions: Map<string, Session> = new Map();  // threadId -> Session
   private postIndex: Map<string, string> = new Map();  // postId -> threadId (for reaction routing)
 
+  // Persistence
+  private sessionStore: SessionStore = new SessionStore();
+
   // Cleanup timer
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -141,6 +150,167 @@ export class SessionManager {
 
     // Start periodic cleanup of idle sessions
     this.cleanupTimer = setInterval(() => this.cleanupIdleSessions(), 60000);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session Initialization (Resume)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Initialize session manager by resuming any persisted sessions.
+   * Should be called before starting to listen for new messages.
+   */
+  async initialize(): Promise<void> {
+    // Clean up stale sessions first
+    const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS);
+    if (staleIds.length > 0) {
+      console.log(`  🧹 Cleaned ${staleIds.length} stale session(s)`);
+    }
+
+    // Load persisted sessions
+    const persisted = this.sessionStore.load();
+    if (persisted.size === 0) {
+      if (this.debug) console.log('  [resume] No sessions to resume');
+      return;
+    }
+
+    console.log(`  📂 Found ${persisted.size} session(s) to resume...`);
+
+    // Resume each session
+    for (const [threadId, state] of persisted) {
+      await this.resumeSession(state);
+    }
+
+    console.log(`  ✅ Resumed ${this.sessions.size} session(s)`);
+  }
+
+  /**
+   * Resume a single session from persisted state
+   */
+  private async resumeSession(state: PersistedSession): Promise<void> {
+    const shortId = state.threadId.substring(0, 8);
+
+    // Verify thread still exists
+    const post = await this.mattermost.getPost(state.threadId);
+    if (!post) {
+      console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
+      this.sessionStore.remove(state.threadId);
+      return;
+    }
+
+    // Check max sessions limit
+    if (this.sessions.size >= MAX_SESSIONS) {
+      console.log(`  ⚠️ Max sessions reached, skipping resume for ${shortId}...`);
+      return;
+    }
+
+    // Create Claude CLI with resume flag
+    const skipPerms = this.skipPermissions && !state.forceInteractivePermissions;
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: state.workingDir,
+      threadId: state.threadId,
+      skipPermissions: skipPerms,
+      sessionId: state.claudeSessionId,
+      resume: true,
+    };
+    const claude = new ClaudeCli(cliOptions);
+
+    // Rebuild Session object from persisted state
+    const session: Session = {
+      threadId: state.threadId,
+      claudeSessionId: state.claudeSessionId,
+      startedBy: state.startedBy,
+      startedAt: new Date(state.startedAt),
+      lastActivityAt: new Date(),
+      sessionNumber: state.sessionNumber,
+      workingDir: state.workingDir,
+      claude,
+      currentPostId: null,
+      pendingContent: '',
+      pendingApproval: null,
+      pendingQuestionSet: null,
+      pendingMessageApproval: null,
+      planApproved: state.planApproved,
+      sessionAllowedUsers: new Set(state.sessionAllowedUsers),
+      forceInteractivePermissions: state.forceInteractivePermissions,
+      sessionStartPostId: state.sessionStartPostId,
+      tasksPostId: state.tasksPostId,
+      activeSubagents: new Map(),
+      updateTimer: null,
+      typingTimer: null,
+      timeoutWarningPosted: false,
+      isRestarting: false,
+      isResumed: true,
+    };
+
+    // Register session
+    this.sessions.set(state.threadId, session);
+    if (state.sessionStartPostId) {
+      this.registerPost(state.sessionStartPostId, state.threadId);
+    }
+
+    // Bind event handlers
+    claude.on('event', (e: ClaudeEvent) => this.handleEvent(state.threadId, e));
+    claude.on('exit', (code: number) => this.handleExit(state.threadId, code));
+
+    try {
+      claude.start();
+      console.log(`  🔄 Resumed session ${shortId}... (@${state.startedBy})`);
+
+      // Post resume message
+      await this.mattermost.createPost(
+        `🔄 **Session resumed** after bot restart\n*Reconnected to Claude session. You can continue where you left off.*`,
+        state.threadId
+      );
+
+      // Update session header
+      await this.updateSessionHeader(session);
+
+      // Update persistence with new activity time
+      this.persistSession(session);
+    } catch (err) {
+      console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
+      this.sessions.delete(state.threadId);
+      this.sessionStore.remove(state.threadId);
+
+      // Try to notify user
+      try {
+        await this.mattermost.createPost(
+          `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
+          state.threadId
+        );
+      } catch {
+        // Ignore if we can't post
+      }
+    }
+  }
+
+  /**
+   * Persist a session to disk
+   */
+  private persistSession(session: Session): void {
+    const state: PersistedSession = {
+      threadId: session.threadId,
+      claudeSessionId: session.claudeSessionId,
+      startedBy: session.startedBy,
+      startedAt: session.startedAt.toISOString(),
+      sessionNumber: session.sessionNumber,
+      workingDir: session.workingDir,
+      sessionAllowedUsers: [...session.sessionAllowedUsers],
+      forceInteractivePermissions: session.forceInteractivePermissions,
+      sessionStartPostId: session.sessionStartPostId,
+      tasksPostId: session.tasksPostId,
+      lastActivityAt: session.lastActivityAt.toISOString(),
+      planApproved: session.planApproved,
+    };
+    this.sessionStore.save(session.threadId, state);
+  }
+
+  /**
+   * Remove a session from persistence
+   */
+  private unpersistSession(threadId: string): void {
+    this.sessionStore.remove(threadId);
   }
 
   // ---------------------------------------------------------------------------
@@ -160,6 +330,11 @@ export class SessionManager {
   /** Get the number of active sessions */
   getSessionCount(): number {
     return this.sessions.size;
+  }
+
+  /** Get all active session thread IDs */
+  getActiveThreadIds(): string[] {
+    return [...this.sessions.keys()];
   }
 
   /** Register a post for reaction routing */
@@ -223,17 +398,23 @@ export class SessionManager {
     );
     const actualThreadId = replyToPostId || post.id;
 
+    // Generate a unique session ID for this Claude session
+    const claudeSessionId = randomUUID();
+
     // Create Claude CLI with options
     const cliOptions: ClaudeCliOptions = {
       workingDir: this.workingDir,
       threadId: actualThreadId,
       skipPermissions: this.skipPermissions,
+      sessionId: claudeSessionId,
+      resume: false,
     };
     const claude = new ClaudeCli(cliOptions);
 
     // Create the session object
     const session: Session = {
       threadId: actualThreadId,
+      claudeSessionId,
       startedBy: username,
       startedAt: new Date(),
       lastActivityAt: new Date(),
@@ -255,6 +436,7 @@ export class SessionManager {
       typingTimer: null,
       timeoutWarningPosted: false,
       isRestarting: false,
+      isResumed: false,
     };
 
     // Register session
@@ -286,6 +468,9 @@ export class SessionManager {
     // Send the message to Claude (with images if present)
     const content = await this.buildMessageContent(options.prompt, options.files);
     claude.sendMessage(content);
+
+    // Persist session for resume after restart
+    this.persistSession(session);
   }
 
   private handleEvent(threadId: string, event: ClaudeEvent): void {
@@ -924,7 +1109,13 @@ export class SessionManager {
   private async flush(session: Session): Promise<void> {
     if (!session.pendingContent.trim()) return;
 
-    const content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
+    let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
+
+    // Mattermost has a 16,383 character limit for posts
+    const MAX_POST_LENGTH = 16000;  // Leave some margin
+    if (content.length > MAX_POST_LENGTH) {
+      content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
+    }
 
     if (session.currentPostId) {
       await this.mattermost.updatePost(session.currentPostId, content);
@@ -965,6 +1156,10 @@ export class SessionManager {
         this.postIndex.delete(postId);
       }
     }
+
+    // Remove from persistence when session ends normally
+    this.unpersistSession(threadId);
+
     const shortId = threadId.substring(0, 8);
     console.log(`  ■ Session ended (${shortId}…) — ${this.sessions.size} active`);
   }
@@ -1087,11 +1282,14 @@ export class SessionManager {
     // Update session working directory
     session.workingDir = absoluteDir;
 
-    // Create new Claude CLI with new working directory
+    // Generate new session ID for the restarted CLI (or keep using --resume with same ID)
+    // We use --resume to maintain conversation context
     const cliOptions: ClaudeCliOptions = {
       workingDir: absoluteDir,
       threadId: threadId,
       skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
+      sessionId: session.claudeSessionId,
+      resume: true,  // Resume to keep conversation context
     };
     session.claude = new ClaudeCli(cliOptions);
 
@@ -1122,6 +1320,9 @@ export class SessionManager {
     // Update activity
     session.lastActivityAt = new Date();
     session.timeoutWarningPosted = false;
+
+    // Persist the updated session state
+    this.persistSession(session);
   }
 
   /** Invite a user to participate in a specific session */
@@ -1145,6 +1346,7 @@ export class SessionManager {
     );
     console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
     await this.updateSessionHeader(session);
+    this.persistSession(session);  // Persist collaboration change
   }
 
   /** Kick a user from a specific session */
@@ -1186,6 +1388,7 @@ export class SessionManager {
       );
       console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
       await this.updateSessionHeader(session);
+      this.persistSession(session);  // Persist collaboration change
     } else {
       await this.mattermost.createPost(
         `⚠️ @${kickedUser} was not in this session`,
@@ -1236,6 +1439,7 @@ export class SessionManager {
     );
     console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
     await this.updateSessionHeader(session);
+    this.persistSession(session);  // Persist permission change
   }
 
   /** Check if a session should use interactive permissions */

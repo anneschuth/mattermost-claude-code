@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2025-12-28
+
+### Added
+- **Session persistence** - Sessions now survive bot restarts!
+  - Active sessions are saved to `~/.config/mm-claude/sessions.json`
+  - On bot restart, sessions are automatically resumed using Claude's `--resume` flag
+  - Users see "Bot shutting down - session will resume" when bot stops
+  - Users see "Session resumed after bot restart" when session resumes
+  - Session state (participants, working dir, permissions) is preserved
+  - Stale sessions (older than SESSION_TIMEOUT_MS) are cleaned up on startup
+  - Thread existence is verified before resuming (deleted threads are skipped)
+
+### Fixed
+- Truncate messages longer than 16K chars to avoid Mattermost API errors
+
 ## [0.8.1] - 2025-12-28
 
 ### Added

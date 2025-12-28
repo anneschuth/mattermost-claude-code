@@ -222,18 +222,39 @@ async function main() {
   mattermost.on('error', (e) => console.error('  ❌ Error:', e));
 
   await mattermost.connect();
+
+  // Resume any persisted sessions from before restart
+  await session.initialize();
+
   console.log(`  ✅ ${bold('Ready!')} Waiting for @${config.mattermost.botName} mentions...`);
   console.log('');
 
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log('');
     console.log(`  👋 ${dim('Shutting down...')}`);
+
+    // Post shutdown message to active sessions
+    const activeThreads = session.getActiveThreadIds();
+    if (activeThreads.length > 0) {
+      console.log(`  📤 Notifying ${activeThreads.length} active session(s)...`);
+      for (const threadId of activeThreads) {
+        try {
+          await mattermost.createPost(
+            `⏸️ **Bot shutting down** - session will resume on restart`,
+            threadId
+          );
+        } catch {
+          // Ignore errors, we're shutting down
+        }
+      }
+    }
+
     session.killAllSessions();
     mattermost.disconnect();
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => { shutdown(); });
+  process.on('SIGTERM', () => { shutdown(); });
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

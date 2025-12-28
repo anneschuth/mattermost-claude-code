@@ -29,6 +29,8 @@ export interface ClaudeCliOptions {
   workingDir: string;
   threadId?: string;  // Thread ID for permission requests
   skipPermissions?: boolean;  // If true, use --dangerously-skip-permissions
+  sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
+  resume?: boolean;    // If true, use --resume instead of --session-id
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -51,6 +53,15 @@ export class ClaudeCli extends EventEmitter {
       '--output-format', 'stream-json',
       '--verbose',
     ];
+
+    // Add session ID for persistence/resume support
+    if (this.options.sessionId) {
+      if (this.options.resume) {
+        args.push('--resume', this.options.sessionId);
+      } else {
+        args.push('--session-id', this.options.sessionId);
+      }
+    }
 
     // Either use skip permissions or the MCP-based permission system
     if (this.options.skipPermissions) {

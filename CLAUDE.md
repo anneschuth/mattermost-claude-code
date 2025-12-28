@@ -7,6 +7,7 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 **Key Features:**
 - Real-time streaming of Claude responses to Mattermost
 - **Multiple concurrent sessions** - one per Mattermost thread
+- **Session persistence** - sessions resume automatically after bot restart
 - **Session collaboration** - `/invite @user` to temporarily allow users in a session
 - **Message approval** - unauthorized users can request approval for their messages
 - Interactive permission approval via emoji reactions
@@ -53,10 +54,12 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 **Session contains:**
 - `claude: ClaudeCli` - the Claude CLI process
+- `claudeSessionId: string` - UUID for session persistence/resume
 - `pendingApproval`, `pendingQuestionSet`, `pendingMessageApproval` - interactive state
 - `sessionAllowedUsers: Set<string>` - per-session allowlist (includes session owner)
 - `updateTimer`, `typingTimer` - per-session timers
 - `activeSubagents: Map<toolUseId, postId>` - subagent tracking
+- `isResumed: boolean` - whether session was resumed after restart
 
 **MCP Permission Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
@@ -78,6 +81,7 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 | `src/mattermost/message-formatter.ts` | Converts Claude output (diffs, code, tasks) to Mattermost markdown |
 | `src/mattermost/types.ts` | Mattermost API types |
 | `src/mcp/permission-server.ts` | MCP server for handling permission prompts via Mattermost reactions |
+| `src/persistence/session-store.ts` | Persists session state to JSON for resume after restart |
 | `.github/workflows/publish.yml` | GitHub Actions workflow for automated npm publishing |
 
 ## How the Permission System Works
@@ -244,6 +248,6 @@ Claude CLI emits JSON events. Key event types:
 - [x] Add `/cancel` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
 - [x] Session collaboration (`/invite`, `/kick`, message approval) - **Done in v0.5.0**
-- [ ] Persist session state for recovery after restart
+- [x] Persist session state for recovery after restart - **Done in v0.9.0**
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
