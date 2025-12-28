@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.9] - 2025-12-28
+
+### Changed
+- **Code quality refactoring** - Extracted shared utilities and added comprehensive test suite
+  - New `src/mattermost/api.ts` - Shared REST API layer for bot and MCP server
+  - New `src/utils/logger.ts` - Standardized logging with `mcpLogger` and `wsLogger`
+  - New `createInteractivePost()` helper for posts with reaction options
+  - Extracted emoji constants and helpers to `src/mattermost/emoji.ts`
+  - Extracted tool formatting to `src/utils/tool-formatter.ts`
+
+### Added
+- **125 unit tests** - Comprehensive test coverage for refactored modules
+  - API layer tests (21 tests)
+  - Emoji helper tests (31 tests)
+  - Tool formatter tests (58 tests)
+  - Logger tests (15 tests)
+
 ## [0.10.8] - 2025-12-28
 
 ### Changed
