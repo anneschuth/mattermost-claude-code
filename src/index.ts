@@ -93,6 +93,25 @@ async function main() {
     const message = post.message;
     const threadRoot = post.root_id || post.id;
 
+    // Check for !kill command FIRST - works anywhere, even as the first message
+    const lowerMessage = message.trim().toLowerCase();
+    if (lowerMessage === '!kill' || (mattermost.isBotMentioned(message) && mattermost.extractPrompt(message).toLowerCase() === '!kill')) {
+      if (!mattermost.isUserAllowed(username)) {
+        await mattermost.createPost('⛔ Only authorized users can use `!kill`', threadRoot);
+        return;
+      }
+      // Notify all active sessions before killing
+      for (const tid of session.getActiveThreadIds()) {
+        try {
+          await mattermost.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
+        } catch { /* ignore */ }
+      }
+      console.log(`  🔴 EMERGENCY SHUTDOWN initiated by @${username}`);
+      session.killAllSessionsAndUnpersist();
+      mattermost.disconnect();
+      process.exit(1);
+    }
+
     // Follow-up in active thread
     if (session.isInSessionThread(threadRoot)) {
       // If message starts with @mention to someone else, ignore it (side conversation)
@@ -125,23 +144,7 @@ async function main() {
         return;
       }
 
-      // Check for !kill command (emergency shutdown - authorized users only)
-      if (lowerContent === '!kill') {
-        if (!mattermost.isUserAllowed(username)) {
-          await mattermost.createPost('⛔ Only authorized users can use `!kill`', threadRoot);
-          return;
-        }
-        // Notify all active sessions before killing
-        for (const tid of session.getActiveThreadIds()) {
-          try {
-            await mattermost.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
-          } catch { /* ignore */ }
-        }
-        console.log(`  🔴 EMERGENCY SHUTDOWN initiated by @${username}`);
-        session.killAllSessionsAndUnpersist();
-        mattermost.disconnect();
-        process.exit(1);
-      }
+      // Note: !kill is handled at the top level, before session thread check
 
       // Check for !help command
       if (lowerContent === '!help' || lowerContent === 'help') {
