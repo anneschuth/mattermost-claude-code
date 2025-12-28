@@ -52,7 +52,6 @@ interface Session {
   startedBy: string;
   startedAt: Date;
   lastActivityAt: Date;
-  promptPreview: string;  // For updating session header
   sessionNumber: number;  // Session # when created
 
   // Claude process
@@ -202,10 +201,6 @@ export class SessionManager {
     }
 
     // Post initial session message (will be updated by updateSessionHeader)
-    const promptPreview = options.prompt.length > 60
-      ? options.prompt.substring(0, 60) + '…'
-      : options.prompt;
-
     const post = await this.mattermost.createPost(
       `### 🤖 mm-claude \`v${pkg.version}\`\n\n*Starting session...*`,
       replyToPostId
@@ -226,7 +221,6 @@ export class SessionManager {
       startedBy: username,
       startedAt: new Date(),
       lastActivityAt: new Date(),
-      promptPreview,
       sessionNumber: this.sessions.size + 1,
       claude,
       currentPostId: null,
@@ -1053,8 +1047,6 @@ export class SessionManager {
       `| | |`,
       `|:--|:--|`,
       ...rows,
-      ``,
-      `> ${session.promptPreview}`,
     ].join('\n');
 
     try {
