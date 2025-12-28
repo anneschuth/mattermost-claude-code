@@ -55,6 +55,9 @@ interface Session {
   lastActivityAt: Date;
   sessionNumber: number;  // Session # when created
 
+  // Working directory (can be changed per-session)
+  workingDir: string;
+
   // Claude process
   claude: ClaudeCli;
 
@@ -230,6 +233,7 @@ export class SessionManager {
       startedAt: new Date(),
       lastActivityAt: new Date(),
       sessionNumber: this.sessions.size + 1,
+      workingDir: this.workingDir,
       claude,
       currentPostId: null,
       pendingContent: '',
@@ -958,6 +962,98 @@ export class SessionManager {
     this.killSession(threadId);
   }
 
+  /** Change working directory for a session (restarts Claude CLI) */
+  async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or globally allowed users can change directory
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can change the working directory`,
+        threadId
+      );
+      return;
+    }
+
+    // Expand ~ to home directory
+    const expandedDir = newDir.startsWith('~')
+      ? newDir.replace('~', process.env.HOME || '')
+      : newDir;
+
+    // Resolve to absolute path
+    const { resolve } = await import('path');
+    const absoluteDir = resolve(expandedDir);
+
+    // Check if directory exists
+    const { existsSync, statSync } = await import('fs');
+    if (!existsSync(absoluteDir)) {
+      await this.mattermost.createPost(
+        `❌ Directory does not exist: \`${newDir}\``,
+        threadId
+      );
+      return;
+    }
+
+    if (!statSync(absoluteDir).isDirectory()) {
+      await this.mattermost.createPost(
+        `❌ Not a directory: \`${newDir}\``,
+        threadId
+      );
+      return;
+    }
+
+    const shortId = threadId.substring(0, 8);
+    const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
+    console.log(`  📂 Session (${shortId}…) changing directory to ${shortDir}`);
+
+    // Stop the current Claude CLI
+    this.stopTyping(session);
+    session.claude.kill();
+
+    // Flush any pending content
+    await this.flush(session);
+    session.currentPostId = null;
+    session.pendingContent = '';
+
+    // Update session working directory
+    session.workingDir = absoluteDir;
+
+    // Create new Claude CLI with new working directory
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: absoluteDir,
+      threadId: threadId,
+      skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
+    };
+    session.claude = new ClaudeCli(cliOptions);
+
+    // Rebind event handlers
+    session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
+    session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
+
+    // Start the new Claude CLI
+    try {
+      session.claude.start();
+    } catch (err) {
+      console.error('  ❌ Failed to restart Claude:', err);
+      await this.mattermost.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
+      return;
+    }
+
+    // Update session header with new directory
+    await this.updateSessionHeader(session);
+
+    // Post confirmation
+    await this.mattermost.createPost(
+      `📂 **Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`,
+      threadId
+    );
+
+    // Update activity
+    session.lastActivityAt = new Date();
+    session.timeoutWarningPosted = false;
+  }
+
   /** Invite a user to participate in a specific session */
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
     const session = this.sessions.get(threadId);
@@ -1088,7 +1184,8 @@ export class SessionManager {
   private async updateSessionHeader(session: Session): Promise<void> {
     if (!session.sessionStartPostId) return;
 
-    const shortDir = this.workingDir.replace(process.env.HOME || '', '~');
+    // Use session's working directory (can be changed via !cd)
+    const shortDir = session.workingDir.replace(process.env.HOME || '', '~');
     // Check session-level permission override
     const isInteractive = !this.skipPermissions || session.forceInteractivePermissions;
     const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';

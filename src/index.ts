@@ -119,6 +119,7 @@ async function main() {
           `| Command | Description |\n` +
           `|:--------|:------------|\n` +
           `| \`!help\` | Show this help message |\n` +
+          `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
           `| \`!invite @user\` | Invite a user to this session |\n` +
           `| \`!kick @user\` | Remove an invited user |\n` +
           `| \`!permissions interactive\` | Enable interactive permissions |\n` +
@@ -158,6 +159,13 @@ async function main() {
             threadRoot
           );
         }
+        return;
+      }
+
+      // Check for !cd command
+      const cdMatch = content.match(/^!cd\s+(.+)/i);
+      if (cdMatch) {
+        await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
         return;
       }
 
