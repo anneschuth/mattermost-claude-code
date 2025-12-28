@@ -107,6 +107,9 @@ interface Session {
 
   // Task timing - when the current in_progress task started
   inProgressTaskStart: number | null;
+
+  // Tool timing - track when tools started for elapsed time display
+  activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -268,6 +271,7 @@ export class SessionManager {
       isResumed: true,
       wasInterrupted: false,
       inProgressTaskStart: null,
+      activeToolStarts: new Map(),
     };
 
     // Register session
@@ -484,6 +488,7 @@ export class SessionManager {
       isResumed: false,
       wasInterrupted: false,
       inProgressTaskStart: null,
+      activeToolStarts: new Map(),
     };
 
     // Register session
@@ -1002,12 +1007,29 @@ export class SessionManager {
         return parts.length > 0 ? parts.join('\n') : null;
       }
       case 'tool_use': {
-        const tool = e.tool_use as { name: string; input?: Record<string, unknown> };
+        const tool = e.tool_use as { id?: string; name: string; input?: Record<string, unknown> };
+        // Track tool start time for elapsed display
+        if (tool.id) {
+          session.activeToolStarts.set(tool.id, Date.now());
+        }
         return this.formatToolUse(tool.name, tool.input || {}) || null;
       }
       case 'tool_result': {
-        const result = e.tool_result as { is_error?: boolean };
-        if (result.is_error) return `  ↳ ❌ Error`;
+        const result = e.tool_result as { tool_use_id?: string; is_error?: boolean };
+        // Calculate elapsed time
+        let elapsed = '';
+        if (result.tool_use_id) {
+          const startTime = session.activeToolStarts.get(result.tool_use_id);
+          if (startTime) {
+            const secs = Math.round((Date.now() - startTime) / 1000);
+            if (secs >= 3) {  // Only show if >= 3 seconds
+              elapsed = ` (${secs}s)`;
+            }
+            session.activeToolStarts.delete(result.tool_use_id);
+          }
+        }
+        if (result.is_error) return `  ↳ ❌ Error${elapsed}`;
+        if (elapsed) return `  ↳ ✓${elapsed}`;
         return null;
       }
       case 'result': {

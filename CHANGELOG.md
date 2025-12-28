@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.3] - 2025-12-28
+
+### Changed
+- **Improved task list UX**
+  - Progress indicator: `📋 **Tasks** (2/5 · 40%)`
+  - Elapsed time for in-progress tasks: `🔄 **Running tests...** (45s)`
+  - Better pending icon: `○` instead of `⬜` (no longer overlaps)
+- **Tool output now shows elapsed time**
+  - Long-running tools (≥3s) show completion time: `↳ ✓ (12s)`
+  - Errors also show timing: `↳ ❌ Error (5s)`
+
 ### Fixed
 - **Paused sessions now resume on new message** - messages to paused sessions were being ignored
   - After ⏸️ interrupt, sending a new message in the thread now resumes the session
