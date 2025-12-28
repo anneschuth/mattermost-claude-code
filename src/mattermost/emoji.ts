@@ -18,7 +18,7 @@ export const ALLOW_ALL_EMOJIS = ['white_check_mark', 'heavy_check_mark'] as cons
 export const NUMBER_EMOJIS = ['one', 'two', 'three', 'four'] as const;
 
 /** Emojis for canceling/killing a session */
-export const CANCEL_EMOJIS = ['x', 'octagonal_sign'] as const;
+export const CANCEL_EMOJIS = ['x', 'octagonal_sign', 'stop_sign'] as const;
 
 /** Emojis for escaping/pausing a session */
 export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button'] as const;
@@ -58,9 +58,20 @@ export function isEscapeEmoji(emoji: string): boolean {
   return (ESCAPE_EMOJIS as readonly string[]).includes(emoji);
 }
 
+/** Unicode number emoji variants that also map to indices */
+const UNICODE_NUMBER_EMOJIS: Record<string, number> = {
+  '1️⃣': 0,
+  '2️⃣': 1,
+  '3️⃣': 2,
+  '4️⃣': 3,
+};
+
 /**
  * Get the index (0-based) for a number emoji, or -1 if not a number emoji
+ * Handles both text names ('one', 'two') and unicode variants ('1️⃣', '2️⃣')
  */
 export function getNumberEmojiIndex(emoji: string): number {
-  return (NUMBER_EMOJIS as readonly string[]).indexOf(emoji);
+  const textIndex = (NUMBER_EMOJIS as readonly string[]).indexOf(emoji);
+  if (textIndex >= 0) return textIndex;
+  return UNICODE_NUMBER_EMOJIS[emoji] ?? -1;
 }

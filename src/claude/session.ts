@@ -1,6 +1,19 @@
 import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
 import { MattermostClient } from '../mattermost/client.js';
 import { MattermostFile } from '../mattermost/types.js';
+import {
+  isApprovalEmoji,
+  isDenialEmoji,
+  isAllowAllEmoji,
+  isCancelEmoji,
+  isEscapeEmoji,
+  getNumberEmojiIndex,
+  NUMBER_EMOJIS,
+  APPROVAL_EMOJIS,
+  DENIAL_EMOJIS,
+  ALLOW_ALL_EMOJIS,
+} from '../mattermost/emoji.js';
+import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
 import { SessionStore, PersistedSession } from '../persistence/session-store.js';
@@ -9,7 +22,6 @@ import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
-import * as Diff from 'diff';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
@@ -113,13 +125,6 @@ interface Session {
   activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
 }
 
-const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
-const EMOJI_TO_INDEX: Record<string, number> = {
-  'one': 0, '1️⃣': 0,
-  'two': 1, '2️⃣': 1,
-  'three': 2, '3️⃣': 2,
-  'four': 3, '4️⃣': 3,
-};
 
 // =============================================================================
 // Configuration
@@ -621,18 +626,14 @@ export class SessionManager {
       `👎 Request changes\n\n` +
       `*React to respond*`;
 
-    const post = await this.mattermost.createPost(message, session.threadId);
+    const post = await this.mattermost.createInteractivePost(
+      message,
+      [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      session.threadId
+    );
 
     // Register post for reaction routing
     this.registerPost(post.id, session.threadId);
-
-    // Add approval reactions
-    try {
-      await this.mattermost.addReaction(post.id, '+1');
-      await this.mattermost.addReaction(post.id, '-1');
-    } catch (err) {
-      console.error('  ⚠️ Failed to add approval reactions:', err);
-    }
 
     // Track this for reaction handling - include toolUseId for proper response
     session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
@@ -795,21 +796,17 @@ export class SessionManager {
       message += '\n';
     }
 
-    // Post the question
-    const post = await this.mattermost.createPost(message, session.threadId);
+    // Post the question with reaction options
+    const reactionOptions = NUMBER_EMOJIS.slice(0, q.options.length);
+    const post = await this.mattermost.createInteractivePost(
+      message,
+      reactionOptions,
+      session.threadId
+    );
     session.pendingQuestionSet.currentPostId = post.id;
 
     // Register post for reaction routing
     this.registerPost(post.id, session.threadId);
-
-    // Add reaction emojis
-    for (let i = 0; i < q.options.length && i < 4; i++) {
-      try {
-        await this.mattermost.addReaction(post.id, REACTION_EMOJIS[i]);
-      } catch (err) {
-        console.error(`  ⚠️ Failed to add reaction ${REACTION_EMOJIS[i]}:`, err);
-      }
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -825,13 +822,13 @@ export class SessionManager {
     if (!session) return;
 
     // Handle cancel reactions (❌ or 🛑) on any post in the session
-    if (emojiName === 'x' || emojiName === 'octagonal_sign' || emojiName === 'stop_sign') {
+    if (isCancelEmoji(emojiName)) {
       await this.cancelSession(session.threadId, username);
       return;
     }
 
     // Handle interrupt reactions (⏸️) on any post in the session
-    if (emojiName === 'pause_button' || emojiName === 'double_vertical_bar') {
+    if (isEscapeEmoji(emojiName)) {
       await this.interruptSession(session.threadId, username);
       return;
     }
@@ -862,8 +859,8 @@ export class SessionManager {
     const question = questions[currentIndex];
     if (!question) return;
 
-    const optionIndex = EMOJI_TO_INDEX[emojiName];
-    if (optionIndex === undefined || optionIndex >= question.options.length) return;
+    const optionIndex = getNumberEmojiIndex(emojiName);
+    if (optionIndex < 0 || optionIndex >= question.options.length) return;
 
     const selectedOption = question.options[optionIndex];
     question.answer = selectedOption.label;
@@ -908,8 +905,8 @@ export class SessionManager {
   private async handleApprovalReaction(session: Session, emojiName: string, username: string): Promise<void> {
     if (!session.pendingApproval) return;
 
-    const isApprove = emojiName === '+1' || emojiName === 'thumbsup';
-    const isReject = emojiName === '-1' || emojiName === 'thumbsdown';
+    const isApprove = isApprovalEmoji(emojiName);
+    const isReject = isDenialEmoji(emojiName);
 
     if (!isApprove && !isReject) return;
 
@@ -952,9 +949,9 @@ export class SessionManager {
       return;
     }
 
-    const isAllow = emoji === '+1' || emoji === 'thumbsup';
-    const isInvite = emoji === 'white_check_mark' || emoji === 'heavy_check_mark';
-    const isDeny = emoji === '-1' || emoji === 'thumbsdown';
+    const isAllow = isApprovalEmoji(emoji);
+    const isInvite = isAllowAllEmoji(emoji);
+    const isDeny = isDenialEmoji(emoji);
 
     if (!isAllow && !isInvite && !isDeny) return;
 
@@ -997,7 +994,7 @@ export class SessionManager {
             const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
             if (text) parts.push(text);
           } else if (block.type === 'tool_use' && block.name) {
-            const formatted = this.formatToolUse(block.name, block.input || {});
+            const formatted = sharedFormatToolUse(block.name, block.input || {}, { detailed: true });
             if (formatted) parts.push(formatted);
           } else if (block.type === 'thinking' && block.thinking) {
             // Extended thinking - show abbreviated version
@@ -1017,7 +1014,7 @@ export class SessionManager {
         if (tool.id) {
           session.activeToolStarts.set(tool.id, Date.now());
         }
-        return this.formatToolUse(tool.name, tool.input || {}) || null;
+        return sharedFormatToolUse(tool.name, tool.input || {}, { detailed: true }) || null;
       }
       case 'tool_result': {
         const result = e.tool_result as { tool_use_id?: string; is_error?: boolean };
@@ -1062,169 +1059,6 @@ export class SessionManager {
       }
       default:
         return null;
-    }
-  }
-
-  private formatToolUse(name: string, input: Record<string, unknown>): string | null {
-    const short = (p: string) => {
-      const home = process.env.HOME || '';
-      return p?.startsWith(home) ? '~' + p.slice(home.length) : p;
-    };
-    switch (name) {
-      case 'Read': return `📄 **Read** \`${short(input.file_path as string)}\``;
-      case 'Edit': {
-        const filePath = short(input.file_path as string);
-        const oldStr = (input.old_string as string || '');
-        const newStr = (input.new_string as string || '');
-
-        // Show diff if we have old/new strings
-        if (oldStr || newStr) {
-          // Use diff library to compute actual line-by-line changes
-          const changes = Diff.diffLines(oldStr, newStr);
-          const maxLines = 20;
-          let lineCount = 0;
-          const diffLines: string[] = [];
-
-          for (const change of changes) {
-            const lines = change.value.replace(/\n$/, '').split('\n');
-            for (const line of lines) {
-              if (lineCount >= maxLines) break;
-              if (change.added) {
-                diffLines.push(`+ ${line}`);
-                lineCount++;
-              } else if (change.removed) {
-                diffLines.push(`- ${line}`);
-                lineCount++;
-              } else {
-                // Context line (unchanged)
-                diffLines.push(`  ${line}`);
-                lineCount++;
-              }
-            }
-            if (lineCount >= maxLines) break;
-          }
-
-          const totalLines = changes.reduce((sum, c) => sum + c.value.split('\n').length - 1, 0);
-
-          let diff = `✏️ **Edit** \`${filePath}\`\n\`\`\`diff\n`;
-          diff += diffLines.join('\n');
-          if (totalLines > maxLines) {
-            diff += `\n... (+${totalLines - maxLines} more lines)`;
-          }
-          diff += '\n```';
-          return diff;
-        }
-        return `✏️ **Edit** \`${filePath}\``;
-      }
-      case 'Write': {
-        const filePath = short(input.file_path as string);
-        const content = input.content as string || '';
-        const lines = content.split('\n');
-        const lineCount = lines.length;
-
-        // Show preview of content
-        if (content && lineCount > 0) {
-          const maxLines = 6;
-          const previewLines = lines.slice(0, maxLines);
-          let preview = `📝 **Write** \`${filePath}\` *(${lineCount} lines)*\n\`\`\`\n`;
-          preview += previewLines.join('\n');
-          if (lineCount > maxLines) preview += `\n... (${lineCount - maxLines} more lines)`;
-          preview += '\n```';
-          return preview;
-        }
-        return `📝 **Write** \`${filePath}\``;
-      }
-      case 'Bash': {
-        const cmd = (input.command as string || '').substring(0, 50);
-        return `💻 **Bash** \`${cmd}${cmd.length >= 50 ? '...' : ''}\``;
-      }
-      case 'Glob': return `🔍 **Glob** \`${input.pattern}\``;
-      case 'Grep': return `🔎 **Grep** \`${input.pattern}\``;
-      case 'Task': return null; // Handled specially with subagent display
-      case 'EnterPlanMode': return `📋 **Planning...**`;
-      case 'ExitPlanMode': return null; // Handled specially with approval buttons
-      case 'AskUserQuestion': return null; // Don't show, the question text follows
-      case 'TodoWrite': return null; // Handled specially with task list display
-      case 'WebFetch': return `🌐 **Fetching** \`${(input.url as string || '').substring(0, 40)}\``;
-      case 'WebSearch': return `🔍 **Searching** \`${input.query}\``;
-      default: {
-        // Handle MCP tools: mcp__server__tool
-        if (name.startsWith('mcp__')) {
-          const parts = name.split('__');
-          if (parts.length >= 3) {
-            const server = parts[1];
-            const tool = parts.slice(2).join('__');
-
-            // Special formatting for Claude in Chrome tools
-            if (server === 'claude-in-chrome') {
-              return this.formatChromeToolUse(tool, input);
-            }
-
-            return `🔌 **${tool}** *(${server})*`;
-          }
-        }
-        return `● **${name}**`;
-      }
-    }
-  }
-
-  /** Format Claude in Chrome tool calls to look like the native CLI */
-  private formatChromeToolUse(tool: string, input: Record<string, unknown>): string {
-    const action = input.action as string || '';
-    const coord = input.coordinate as number[] | undefined;
-    const url = input.url as string || '';
-    const text = input.text as string || '';
-
-    switch (tool) {
-      case 'computer': {
-        let detail = '';
-        switch (action) {
-          case 'screenshot':
-            detail = 'screenshot';
-            break;
-          case 'left_click':
-          case 'right_click':
-          case 'double_click':
-          case 'triple_click':
-            detail = coord ? `${action} at (${coord[0]}, ${coord[1]})` : action;
-            break;
-          case 'type':
-            detail = `type "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`;
-            break;
-          case 'key':
-            detail = `key ${text}`;
-            break;
-          case 'scroll':
-            detail = `scroll ${input.scroll_direction || 'down'}`;
-            break;
-          case 'wait':
-            detail = `wait ${input.duration}s`;
-            break;
-          default:
-            detail = action || 'action';
-        }
-        return `🌐 **Chrome**[computer] \`${detail}\``;
-      }
-      case 'navigate':
-        return `🌐 **Chrome**[navigate] \`${url.substring(0, 50)}${url.length > 50 ? '...' : ''}\``;
-      case 'tabs_context_mcp':
-        return `🌐 **Chrome**[tabs] reading context`;
-      case 'tabs_create_mcp':
-        return `🌐 **Chrome**[tabs] creating new tab`;
-      case 'read_page':
-        return `🌐 **Chrome**[read_page] ${input.filter === 'interactive' ? 'interactive elements' : 'accessibility tree'}`;
-      case 'find':
-        return `🌐 **Chrome**[find] \`${input.query || ''}\``;
-      case 'form_input':
-        return `🌐 **Chrome**[form_input] setting value`;
-      case 'get_page_text':
-        return `🌐 **Chrome**[get_page_text] extracting content`;
-      case 'javascript_tool':
-        return `🌐 **Chrome**[javascript] executing script`;
-      case 'gif_creator':
-        return `🌐 **Chrome**[gif] ${action}`;
-      default:
-        return `🌐 **Chrome**[${tool}]`;
     }
   }
 
@@ -1907,9 +1741,10 @@ export class SessionManager {
 
     const preview = message.length > 100 ? message.substring(0, 100) + '…' : message;
 
-    const post = await this.mattermost.createPost(
+    const post = await this.mattermost.createInteractivePost(
       `🔒 **@${username}** wants to send a message:\n> ${preview}\n\n` +
       `React 👍 to allow this message, ✅ to invite them to the session, 👎 to deny`,
+      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
       threadId
     );
 
@@ -1920,15 +1755,6 @@ export class SessionManager {
     };
 
     this.registerPost(post.id, threadId);
-
-    // Add reaction options
-    try {
-      await this.mattermost.addReaction(post.id, '+1');
-      await this.mattermost.addReaction(post.id, 'white_check_mark');
-      await this.mattermost.addReaction(post.id, '-1');
-    } catch (err) {
-      console.error('  ⚠️ Failed to add message approval reactions:', err);
-    }
   }
 
   /** Kill all active sessions (for graceful shutdown) */

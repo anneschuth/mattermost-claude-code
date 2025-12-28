@@ -90,6 +90,10 @@ describe('emoji helpers', () => {
       expect(isCancelEmoji('octagonal_sign')).toBe(true);
     });
 
+    it('returns true for stop_sign', () => {
+      expect(isCancelEmoji('stop_sign')).toBe(true);
+    });
+
     it('returns false for other emojis', () => {
       expect(isCancelEmoji('heart')).toBe(false);
       expect(isCancelEmoji('-1')).toBe(false);
@@ -138,6 +142,22 @@ describe('emoji helpers', () => {
 
     it('returns 3 for "four"', () => {
       expect(getNumberEmojiIndex('four')).toBe(3);
+    });
+
+    it('returns 0 for "1️⃣" (unicode)', () => {
+      expect(getNumberEmojiIndex('1️⃣')).toBe(0);
+    });
+
+    it('returns 1 for "2️⃣" (unicode)', () => {
+      expect(getNumberEmojiIndex('2️⃣')).toBe(1);
+    });
+
+    it('returns 2 for "3️⃣" (unicode)', () => {
+      expect(getNumberEmojiIndex('3️⃣')).toBe(2);
+    });
+
+    it('returns 3 for "4️⃣" (unicode)', () => {
+      expect(getNumberEmojiIndex('4️⃣')).toBe(3);
     });
 
     it('returns -1 for non-number emojis', () => {

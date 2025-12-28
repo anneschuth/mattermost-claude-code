@@ -188,6 +188,10 @@ export function formatToolUse(
       // Handle MCP tools: mcp__server__tool
       const mcpParts = parseMcpToolName(toolName);
       if (mcpParts) {
+        // Special formatting for Claude in Chrome tools
+        if (mcpParts.server === 'claude-in-chrome') {
+          return formatChromeToolUse(mcpParts.tool, input);
+        }
         return `🔌 **${mcpParts.tool}** *(${mcpParts.server})*`;
       }
       return `● **${toolName}**`;
@@ -226,5 +230,74 @@ export function formatToolForPermission(
       }
       return `● **${toolName}**`;
     }
+  }
+}
+
+/**
+ * Format Claude in Chrome tool calls
+ *
+ * @param tool - The Chrome tool name (after mcp__claude-in-chrome__)
+ * @param input - The tool input parameters
+ * @returns Formatted string for display
+ */
+export function formatChromeToolUse(
+  tool: string,
+  input: ToolInput
+): string {
+  const action = (input.action as string) || '';
+  const coord = input.coordinate as number[] | undefined;
+  const url = (input.url as string) || '';
+  const text = (input.text as string) || '';
+
+  switch (tool) {
+    case 'computer': {
+      let detail = '';
+      switch (action) {
+        case 'screenshot':
+          detail = 'screenshot';
+          break;
+        case 'left_click':
+        case 'right_click':
+        case 'double_click':
+        case 'triple_click':
+          detail = coord ? `${action} at (${coord[0]}, ${coord[1]})` : action;
+          break;
+        case 'type':
+          detail = `type "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`;
+          break;
+        case 'key':
+          detail = `key ${text}`;
+          break;
+        case 'scroll':
+          detail = `scroll ${input.scroll_direction || 'down'}`;
+          break;
+        case 'wait':
+          detail = `wait ${input.duration}s`;
+          break;
+        default:
+          detail = action || 'action';
+      }
+      return `🌐 **Chrome**[computer] \`${detail}\``;
+    }
+    case 'navigate':
+      return `🌐 **Chrome**[navigate] \`${url.substring(0, 50)}${url.length > 50 ? '...' : ''}\``;
+    case 'tabs_context_mcp':
+      return `🌐 **Chrome**[tabs] reading context`;
+    case 'tabs_create_mcp':
+      return `🌐 **Chrome**[tabs] creating new tab`;
+    case 'read_page':
+      return `🌐 **Chrome**[read_page] ${input.filter === 'interactive' ? 'interactive elements' : 'accessibility tree'}`;
+    case 'find':
+      return `🌐 **Chrome**[find] \`${input.query || ''}\``;
+    case 'form_input':
+      return `🌐 **Chrome**[form_input] setting value`;
+    case 'get_page_text':
+      return `🌐 **Chrome**[get_page_text] extracting content`;
+    case 'javascript_tool':
+      return `🌐 **Chrome**[javascript] executing script`;
+    case 'gif_creator':
+      return `🌐 **Chrome**[gif] ${action}`;
+    default:
+      return `🌐 **Chrome**[${tool}]`;
   }
 }

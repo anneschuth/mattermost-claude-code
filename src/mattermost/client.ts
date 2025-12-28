@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import type { Config } from '../config.js';
+import { wsLogger } from '../utils/logger.js';
 import type {
   MattermostWebSocketEvent,
   MattermostPost,
@@ -33,7 +34,6 @@ export class MattermostClient extends EventEmitter {
   private reconnectDelay = 1000;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
-  private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   // Heartbeat to detect dead connections
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -44,10 +44,6 @@ export class MattermostClient extends EventEmitter {
   constructor(config: Config) {
     super();
     this.config = config;
-  }
-
-  private log(msg: string): void {
-    if (this.debug) console.log(`  [ws] ${msg}`);
   }
 
   // REST API helper
@@ -126,6 +122,36 @@ export class MattermostClient extends EventEmitter {
     });
   }
 
+  /**
+   * Create a post with reaction options for user interaction
+   *
+   * This is a common pattern for interactive posts that need user response
+   * via reactions (e.g., approval prompts, questions, permission requests).
+   *
+   * @param message - Post message content
+   * @param reactions - Array of emoji names to add as reaction options
+   * @param threadId - Optional thread root ID
+   * @returns The created post
+   */
+  async createInteractivePost(
+    message: string,
+    reactions: string[],
+    threadId?: string
+  ): Promise<MattermostPost> {
+    const post = await this.createPost(message, threadId);
+
+    // Add each reaction option, continuing even if some fail
+    for (const emoji of reactions) {
+      try {
+        await this.addReaction(post.id, emoji);
+      } catch (err) {
+        console.error(`  ⚠️ Failed to add reaction ${emoji}:`, err);
+      }
+    }
+
+    return post;
+  }
+
   // Download a file attachment
   async downloadFile(fileId: string): Promise<Buffer> {
     const url = `${this.config.mattermost.url}/api/v4/files/${fileId}`;
@@ -161,7 +187,7 @@ export class MattermostClient extends EventEmitter {
   async connect(): Promise<void> {
     // Get bot user first
     await this.getBotUser();
-    this.log(`Bot user ID: ${this.botUserId}`);
+    wsLogger.debug(`Bot user ID: ${this.botUserId}`);
 
     const wsUrl = this.config.mattermost.url
       .replace(/^http/, 'ws')
@@ -171,7 +197,7 @@ export class MattermostClient extends EventEmitter {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.on('open', () => {
-        this.log('WebSocket connected');
+        wsLogger.debug('WebSocket connected');
         // Authenticate
         this.ws!.send(
           JSON.stringify({
@@ -196,26 +222,26 @@ export class MattermostClient extends EventEmitter {
             resolve();
           }
         } catch (err) {
-          this.log(`Failed to parse message: ${err}`);
+          wsLogger.debug(`Failed to parse message: ${err}`);
         }
       });
 
       this.ws.on('close', () => {
-        this.log('WebSocket disconnected');
+        wsLogger.debug('WebSocket disconnected');
         this.stopHeartbeat();
         this.emit('disconnected');
         this.scheduleReconnect();
       });
 
       this.ws.on('error', (err) => {
-        this.log(`WebSocket error: ${err}`);
+        wsLogger.debug(`WebSocket error: ${err}`);
         this.emit('error', err);
         reject(err);
       });
 
       this.ws.on('pong', () => {
         this.lastMessageAt = Date.now(); // Pong received, connection is alive
-        this.log('Pong received');
+        wsLogger.debug('Pong received');
       });
     });
   }
@@ -240,7 +266,7 @@ export class MattermostClient extends EventEmitter {
           this.emit('message', post, user);
         });
       } catch (err) {
-        this.log(`Failed to parse post: ${err}`);
+        wsLogger.debug(`Failed to parse post: ${err}`);
       }
       return;
     }
@@ -261,7 +287,7 @@ export class MattermostClient extends EventEmitter {
           this.emit('reaction', reaction, user);
         });
       } catch (err) {
-        this.log(`Failed to parse reaction: ${err}`);
+        wsLogger.debug(`Failed to parse reaction: ${err}`);
       }
     }
   }
@@ -303,7 +329,7 @@ export class MattermostClient extends EventEmitter {
       // Send ping to keep connection alive and verify it's working
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.ws.ping();
-        this.log(`Ping sent (last activity ${Math.round(silentFor / 1000)}s ago)`);
+        wsLogger.debug(`Ping sent (last activity ${Math.round(silentFor / 1000)}s ago)`);
       }
     }, this.PING_INTERVAL_MS);
   }

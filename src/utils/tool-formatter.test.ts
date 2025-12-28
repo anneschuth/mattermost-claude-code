@@ -257,9 +257,139 @@ describe('formatToolUse', () => {
       expect(result).toBe('🔌 **mytool** *(myserver)*');
     });
 
-    it('formats MCP tools with complex names', () => {
-      const result = formatToolUse('mcp__claude-in-chrome__computer', {});
-      expect(result).toBe('🔌 **computer** *(claude-in-chrome)*');
+    it('formats MCP tools with underscores in name', () => {
+      const result = formatToolUse('mcp__my_server__my_tool', { arg: 'value' });
+      expect(result).toBe('🔌 **my_tool** *(my_server)*');
+    });
+  });
+
+  describe('Claude in Chrome tools', () => {
+    it('formats computer screenshot action', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', { action: 'screenshot' });
+      expect(result).toBe('🌐 **Chrome**[computer] `screenshot`');
+    });
+
+    it('formats computer click actions with coordinates', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'left_click',
+        coordinate: [100, 200],
+      });
+      expect(result).toBe('🌐 **Chrome**[computer] `left_click at (100, 200)`');
+    });
+
+    it('formats computer type action', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'type',
+        text: 'hello world',
+      });
+      expect(result).toBe('🌐 **Chrome**[computer] `type "hello world"`');
+    });
+
+    it('truncates long type text', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'type',
+        text: 'this is a very long text that should be truncated',
+      });
+      expect(result).toContain('...');
+    });
+
+    it('formats computer key action', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'key',
+        text: 'Enter',
+      });
+      expect(result).toBe('🌐 **Chrome**[computer] `key Enter`');
+    });
+
+    it('formats computer scroll action', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'scroll',
+        scroll_direction: 'up',
+      });
+      expect(result).toBe('🌐 **Chrome**[computer] `scroll up`');
+    });
+
+    it('formats computer wait action', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__computer', {
+        action: 'wait',
+        duration: 2,
+      });
+      expect(result).toBe('🌐 **Chrome**[computer] `wait 2s`');
+    });
+
+    it('formats navigate tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__navigate', {
+        url: 'https://example.com/page',
+      });
+      expect(result).toBe('🌐 **Chrome**[navigate] `https://example.com/page`');
+    });
+
+    it('truncates long URLs in navigate', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__navigate', {
+        url: 'https://example.com/' + 'x'.repeat(100),
+      });
+      expect(result).toContain('...');
+    });
+
+    it('formats tabs_context_mcp tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__tabs_context_mcp', {});
+      expect(result).toBe('🌐 **Chrome**[tabs] reading context');
+    });
+
+    it('formats tabs_create_mcp tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__tabs_create_mcp', {});
+      expect(result).toBe('🌐 **Chrome**[tabs] creating new tab');
+    });
+
+    it('formats read_page tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__read_page', {});
+      expect(result).toBe('🌐 **Chrome**[read_page] accessibility tree');
+    });
+
+    it('formats read_page tool with interactive filter', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__read_page', {
+        filter: 'interactive',
+      });
+      expect(result).toBe('🌐 **Chrome**[read_page] interactive elements');
+    });
+
+    it('formats find tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__find', {
+        query: 'login button',
+      });
+      expect(result).toBe('🌐 **Chrome**[find] `login button`');
+    });
+
+    it('formats form_input tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__form_input', {
+        ref: 'ref_1',
+        value: 'test',
+      });
+      expect(result).toBe('🌐 **Chrome**[form_input] setting value');
+    });
+
+    it('formats get_page_text tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__get_page_text', {});
+      expect(result).toBe('🌐 **Chrome**[get_page_text] extracting content');
+    });
+
+    it('formats javascript_tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__javascript_tool', {
+        text: 'document.title',
+      });
+      expect(result).toBe('🌐 **Chrome**[javascript] executing script');
+    });
+
+    it('formats gif_creator tool', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__gif_creator', {
+        action: 'start_recording',
+      });
+      expect(result).toBe('🌐 **Chrome**[gif] start_recording');
+    });
+
+    it('formats unknown Chrome tools', () => {
+      const result = formatToolUse('mcp__claude-in-chrome__new_tool', {});
+      expect(result).toBe('🌐 **Chrome**[new_tool]');
     });
   });
 
