@@ -8,6 +8,7 @@ import type { MattermostPost, MattermostUser } from './mattermost/types.js';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { checkForUpdates } from './update-notifier.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -39,6 +40,9 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
+  // Check for updates (non-blocking, shows notification if available)
+  checkForUpdates();
+
   // Set debug mode from CLI flag
   if (opts.debug) {
     process.env.DEBUG = '1';

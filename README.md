@@ -252,6 +252,7 @@ ALLOWED_USERS=alice,bob,carol
 | `SKIP_PERMISSIONS` | `true` to auto-approve actions |
 | `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
 | `SESSION_TIMEOUT_MS` | Idle timeout in ms (default: `1800000` = 30 min) |
+| `NO_UPDATE_NOTIFIER` | Set to `1` to disable update checks |
 
 Config file locations (in priority order):
 1. `./.env` (current directory)
@@ -265,6 +266,21 @@ Config file locations (in priority order):
 - **Bash**: Shows command being executed
 - **Read**: Shows file path being read
 - **MCP tools**: Shows tool name and server
+
+## Auto-Updates
+
+mm-claude checks for updates every 30 minutes and notifies you when a new version is available:
+
+- **CLI**: Shows a notification box on startup
+- **Mattermost**: Shows a warning in session headers
+
+To update:
+
+```bash
+npm install -g mattermost-claude-code
+```
+
+To disable update checks, set `NO_UPDATE_NOTIFIER=1`.
 
 ## For Mattermost Admins
 
