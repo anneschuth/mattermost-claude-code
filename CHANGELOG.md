@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2025-12-28
+
+### Fixed
+- **`!kill` now works from any message** - previously only worked within active session threads
+  - Can now send `!kill` or `@bot !kill` as the very first message to emergency shutdown
+  - Useful when bot is misbehaving and you need to stop it immediately
+
 ## [0.10.0] - 2025-12-28
 
 ### Added
