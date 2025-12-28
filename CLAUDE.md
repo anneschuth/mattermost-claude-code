@@ -249,5 +249,7 @@ Claude CLI emits JSON events. Key event types:
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
 - [x] Session collaboration (`/invite`, `/kick`, message approval) - **Done in v0.5.0**
 - [x] Persist session state for recovery after restart - **Done in v0.9.0**
+- [x] Add `!escape` command to interrupt without killing session - **Done in v0.10.0** (also ⏸️ reaction)
+- [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments

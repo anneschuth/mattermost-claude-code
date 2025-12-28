@@ -10,6 +10,7 @@ import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
+import { printLogo } from './logo.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -67,10 +68,12 @@ async function main() {
   const workingDir = process.cwd();
   const config = loadConfig(cliArgs);
 
-  // Nice startup banner
+  // Print ASCII logo
+  printLogo();
+
+  // Startup info
+  console.log(dim(`  v${pkg.version}`));
   console.log('');
-  console.log(bold(`  🤖 mm-claude v${pkg.version}`));
-  console.log(dim('  ─────────────────────────────────'));
   console.log(`  📂 ${cyan(workingDir)}`);
   console.log(`  💬 ${cyan('@' + config.mattermost.botName)}`);
   console.log(`  🌐 ${dim(config.mattermost.url)}`);
@@ -114,6 +117,32 @@ async function main() {
         return;
       }
 
+      // Check for !escape/!interrupt commands (soft interrupt, keeps session alive)
+      if (lowerContent === '!escape' || lowerContent === '!interrupt') {
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          await session.interruptSession(threadRoot, username);
+        }
+        return;
+      }
+
+      // Check for !kill command (emergency shutdown - authorized users only)
+      if (lowerContent === '!kill') {
+        if (!mattermost.isUserAllowed(username)) {
+          await mattermost.createPost('⛔ Only authorized users can use `!kill`', threadRoot);
+          return;
+        }
+        // Notify all active sessions before killing
+        for (const tid of session.getActiveThreadIds()) {
+          try {
+            await mattermost.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
+          } catch { /* ignore */ }
+        }
+        console.log(`  🔴 EMERGENCY SHUTDOWN initiated by @${username}`);
+        session.killAllSessionsAndUnpersist();
+        mattermost.disconnect();
+        process.exit(1);
+      }
+
       // Check for !help command
       if (lowerContent === '!help' || lowerContent === 'help') {
         await mattermost.createPost(
@@ -126,10 +155,13 @@ async function main() {
           `| \`!invite @user\` | Invite a user to this session |\n` +
           `| \`!kick @user\` | Remove an invited user |\n` +
           `| \`!permissions interactive\` | Enable interactive permissions |\n` +
-          `| \`!stop\` | Stop this session |\n\n` +
+          `| \`!escape\` | Interrupt current task (session stays active) |\n` +
+          `| \`!stop\` | Stop this session |\n` +
+          `| \`!kill\` | Emergency shutdown (kills ALL sessions, exits bot) |\n\n` +
           `**Reactions:**\n` +
           `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
-          `- ❌ or 🛑 on any message to stop session`,
+          `- ⏸️ Interrupt current task (session stays active)\n` +
+          `- ❌ or 🛑 Stop session`,
           threadRoot
         );
         return;

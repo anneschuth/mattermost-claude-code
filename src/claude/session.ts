@@ -4,6 +4,7 @@ import { MattermostFile } from '../mattermost/types.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
 import { SessionStore, PersistedSession } from '../persistence/session-store.js';
+import { MATTERMOST_LOGO } from '../logo.js';
 import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -36,6 +37,7 @@ interface PendingQuestionSet {
 interface PendingApproval {
   postId: string;
   type: 'plan' | 'action';
+  toolUseId: string;
 }
 
 /**
@@ -423,7 +425,7 @@ export class SessionManager {
     let post;
     try {
       post = await this.mattermost.createPost(
-        `### 🤖 mm-claude \`v${pkg.version}\`\n\n*Starting session...*`,
+        `${MATTERMOST_LOGO}\n**v${pkg.version}**\n\n*Starting session...*`,
         replyToPostId
       );
     } catch (err) {
@@ -523,7 +525,7 @@ export class SessionManager {
       for (const block of msg?.content || []) {
         if (block.type === 'tool_use') {
           if (block.name === 'ExitPlanMode') {
-            this.handleExitPlanMode(session);
+            this.handleExitPlanMode(session, block.id as string);
             hasSpecialTool = true;
           } else if (block.name === 'TodoWrite') {
             this.handleTodoWrite(session, block.input as Record<string, unknown>);
@@ -571,11 +573,14 @@ export class SessionManager {
     }
   }
 
-  private async handleExitPlanMode(session: Session): Promise<void> {
-    // If already approved in this session, silently ignore subsequent ExitPlanMode calls
-    // (Don't send another message - that causes Claude to loop)
+  private async handleExitPlanMode(session: Session, toolUseId: string): Promise<void> {
+    // If already approved in this session, send empty tool result to acknowledge
+    // (Claude needs a response to continue)
     if (session.planApproved) {
-      if (this.debug) console.log('  ↪ Plan already approved, ignoring ExitPlanMode');
+      if (this.debug) console.log('  ↪ Plan already approved, sending acknowledgment');
+      if (session.claude.isRunning()) {
+        session.claude.sendToolResult(toolUseId, 'Plan already approved. Proceeding.');
+      }
       return;
     }
 
@@ -609,8 +614,8 @@ export class SessionManager {
       console.error('  ⚠️ Failed to add approval reactions:', err);
     }
 
-    // Track this for reaction handling
-    session.pendingApproval = { postId: post.id, type: 'plan' };
+    // Track this for reaction handling - include toolUseId for proper response
+    session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
 
     // Stop typing while waiting
     this.stopTyping(session);
@@ -783,6 +788,12 @@ export class SessionManager {
       return;
     }
 
+    // Handle interrupt reactions (⏸️) on any post in the session
+    if (emojiName === 'pause_button' || emojiName === 'double_vertical_bar') {
+      await this.interruptSession(session.threadId, username);
+      return;
+    }
+
     // Handle approval reactions
     if (session.pendingApproval && session.pendingApproval.postId === postId) {
       await this.handleApprovalReaction(session, emojiName, username);
@@ -830,7 +841,7 @@ export class SessionManager {
       // Post next question
       await this.postCurrentQuestion(session);
     } else {
-      // All questions answered - send as follow-up message
+      // All questions answered - send tool result
       let answersText = 'Here are my answers:\n';
       for (const q of questions) {
         answersText += `- **${q.header}**: ${q.answer}\n`;
@@ -838,11 +849,15 @@ export class SessionManager {
 
       if (this.debug) console.log('  ✅ All questions answered');
 
-      // Clear and send as regular message
+      // Get the toolUseId before clearing
+      const toolUseId = session.pendingQuestionSet.toolUseId;
+
+      // Clear pending questions
       session.pendingQuestionSet = null;
 
+      // Send tool result to Claude (AskUserQuestion expects a tool_result, not a user message)
       if (session.claude.isRunning()) {
-        session.claude.sendMessage(answersText);
+        session.claude.sendToolResult(toolUseId, answersText);
         this.startTyping(session);
       }
     }
@@ -856,7 +871,7 @@ export class SessionManager {
 
     if (!isApprove && !isReject) return;
 
-    const postId = session.pendingApproval.postId;
+    const { postId, toolUseId } = session.pendingApproval;
     const shortId = session.threadId.substring(0, 8);
     console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
@@ -876,12 +891,12 @@ export class SessionManager {
       session.planApproved = true;
     }
 
-    // Send response to Claude
+    // Send tool result to Claude (ExitPlanMode expects a tool_result, not a user message)
     if (session.claude.isRunning()) {
       const response = isApprove
         ? 'Approved. Please proceed with the implementation.'
         : 'Please revise the plan. I would like some changes.';
-      session.claude.sendMessage(response);
+      session.claude.sendToolResult(toolUseId, response);
       this.startTyping(session);
     }
   }
@@ -1324,6 +1339,31 @@ export class SessionManager {
     this.killSession(threadId);
   }
 
+  /** Interrupt current processing but keep session alive (like Escape in CLI) */
+  async interruptSession(threadId: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    if (!session.claude.isRunning()) {
+      await this.mattermost.createPost(
+        `ℹ️ Session is idle, nothing to interrupt`,
+        threadId
+      );
+      return;
+    }
+
+    const shortId = threadId.substring(0, 8);
+    const interrupted = session.claude.interrupt();
+
+    if (interrupted) {
+      console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
+      await this.mattermost.createPost(
+        `⏸️ **Interrupted** by @${username} — session still active, you can continue`,
+        threadId
+      );
+    }
+  }
+
   /** Change working directory for a session (restarts Claude CLI) */
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
@@ -1594,7 +1634,8 @@ export class SessionManager {
     const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
 
     const msg = [
-      `### 🤖 mm-claude \`v${pkg.version}\``,
+      MATTERMOST_LOGO,
+      `**v${pkg.version}**`,
       updateNotice,
       whatsNewLine,
       `| | |`,
@@ -1669,6 +1710,28 @@ export class SessionManager {
     }
     if (count > 0) {
       console.log(`  ✖ Killed ${count} session${count === 1 ? '' : 's'} (sessions preserved for resume)`);
+    }
+  }
+
+  /** Kill all sessions AND unpersist them (for emergency shutdown - no resume) */
+  killAllSessionsAndUnpersist(): void {
+    this.isShuttingDown = true;
+    const count = this.sessions.size;
+
+    // Kill each session WITH unpersisting - emergency shutdown, no resume
+    for (const [threadId] of this.sessions.entries()) {
+      this.killSession(threadId, true);  // true = unpersist
+    }
+
+    this.sessions.clear();
+    this.postIndex.clear();
+
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    if (count > 0) {
+      console.log(`  🔴 Emergency killed ${count} session${count === 1 ? '' : 's'} (sessions NOT preserved)`);
     }
   }
 

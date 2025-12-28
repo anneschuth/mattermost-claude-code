@@ -196,6 +196,13 @@ export class ClaudeCli extends EventEmitter {
     this.process = null;
   }
 
+  /** Interrupt current processing (like Escape in CLI) - keeps process alive */
+  interrupt(): boolean {
+    if (!this.process) return false;
+    this.process.kill('SIGINT');
+    return true;
+  }
+
   private getMcpServerPath(): string {
     // Get the path to the MCP permission server
     // When running from source: src/mcp/permission-server.ts -> dist/mcp/permission-server.js
