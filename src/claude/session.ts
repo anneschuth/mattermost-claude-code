@@ -883,6 +883,7 @@ export class SessionManager {
 
     // If we're intentionally restarting (e.g., !cd), don't clean up or post exit message
     if (session.isRestarting) {
+      session.isRestarting = false;  // Reset flag here, after the exit event fires
       return;
     }
 
@@ -1041,9 +1042,9 @@ export class SessionManager {
     // Start the new Claude CLI
     try {
       session.claude.start();
-      session.isRestarting = false;  // Successfully restarted
+      // Note: isRestarting is reset in handleExit when the old process exit event fires
     } catch (err) {
-      session.isRestarting = false;  // Reset flag even on failure
+      session.isRestarting = false;  // Reset flag on failure since exit won't fire
       console.error('  ❌ Failed to restart Claude:', err);
       await this.mattermost.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
       return;
