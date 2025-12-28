@@ -4,7 +4,7 @@ import { MattermostFile } from '../mattermost/types.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
 import { SessionStore, PersistedSession } from '../persistence/session-store.js';
-import { MATTERMOST_LOGO } from '../logo.js';
+import { getMattermostLogo } from '../logo.js';
 import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -425,7 +425,7 @@ export class SessionManager {
     let post;
     try {
       post = await this.mattermost.createPost(
-        `${MATTERMOST_LOGO}\n**v${pkg.version}**\n\n*Starting session...*`,
+        `${getMattermostLogo(pkg.version)}\n\n*Starting session...*`,
         replyToPostId
       );
     } catch (err) {
@@ -1634,8 +1634,7 @@ export class SessionManager {
     const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
 
     const msg = [
-      MATTERMOST_LOGO,
-      `**v${pkg.version}**`,
+      getMattermostLogo(pkg.version),
       updateNotice,
       whatsNewLine,
       `| | |`,

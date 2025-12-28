@@ -27,12 +27,24 @@ ${colors.orange}✴${colors.reset}  ${colors.blue}▐█▐█▌█▌${colors.
 
 /**
  * ASCII logo for Mattermost (plain text, no ANSI codes)
+ * Use getMattermostLogo(version) instead to include version
  */
 export const MATTERMOST_LOGO = `\`\`\`
  ✴ ▐█▙ ▟█▌ ✴   mm-claude
 ✴  ▐█▐█▌█▌  ✴  Mattermost × Claude Code
  ✴ ▐█▌ ▐█▌ ✴
 \`\`\``;
+
+/**
+ * Get ASCII logo for Mattermost with version included
+ */
+export function getMattermostLogo(version: string): string {
+  return `\`\`\`
+ ✴ ▐█▙ ▟█▌ ✴   mm-claude v${version}
+✴  ▐█▐█▌█▌  ✴  Mattermost × Claude Code
+ ✴ ▐█▌ ▐█▌ ✴
+\`\`\``;
+}
 
 /**
  * Compact inline logo for Mattermost headers

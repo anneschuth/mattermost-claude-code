@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Version number now displays directly after "mm-claude" in the logo instead of on a separate line
+
 ## [0.10.1] - 2025-12-28
 
 ### Fixed
