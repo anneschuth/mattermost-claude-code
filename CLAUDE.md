@@ -65,8 +65,9 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point. Parses --help/--version, starts bot, handles shutdown |
-| `src/config.ts` | Loads .env from multiple locations, exports Config type |
+| `src/index.ts` | Entry point. CLI parsing with Commander, starts bot, handles shutdown |
+| `src/config.ts` | Loads config from CLI args / .env files, exports Config type |
+| `src/onboarding.ts` | Interactive setup wizard when no config exists |
 | `src/claude/cli.ts` | Spawns Claude CLI with correct flags, configures MCP server |
 | `src/claude/session.ts` | Core logic: handles Claude events, formats for Mattermost, manages state |
 | `src/claude/types.ts` | TypeScript types for Claude stream-json events |
@@ -117,10 +118,13 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 | `DEBUG` | No | Set `1` for debug logging |
 | `CLAUDE_PATH` | No | Custom path to claude binary (default: `claude`) |
 
-Config is loaded from (in order):
-1. `./.env` (current directory)
-2. `~/.config/mm-claude/.env`
-3. `~/.mm-claude.env`
+**Config priority** (highest to lowest):
+1. CLI arguments (`--url`, `--token`, `--channel`, etc.)
+2. `./.env` (current directory)
+3. `~/.config/mm-claude/.env`
+4. `~/.mm-claude.env`
+
+**First run:** If no config exists and no CLI args provided, interactive onboarding guides you through setup.
 
 ## Development Commands
 
@@ -228,7 +232,8 @@ Claude CLI emits JSON events. Key event types:
 
 - [ ] Add unit tests
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
-- [ ] Add `/cancel` command to abort running session
+- [x] Add `/cancel` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
+- [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
 - [ ] Persist session state for recovery after restart
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
