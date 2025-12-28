@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.2] - 2025-12-28
+
+### Fixed
+- **Fix worktree skip emoji** - Use emoji name `x` instead of Unicode `❌`
+  - Mattermost API expects emoji names for reactions, not Unicode characters
+  - Was causing "Custom emoji have been disabled" error
+
 ## [0.11.1] - 2025-12-28
 
 ### Fixed

@@ -688,7 +688,8 @@ export class SessionManager {
     }
 
     // Create post with ❌ reaction option (except for 'require' mode)
-    const reactionOptions = reason === 'require' ? [] : ['❌'];
+    // Use 'x' emoji name, not Unicode ❌ character
+    const reactionOptions = reason === 'require' ? [] : ['x'];
     const post = await this.mattermost.createInteractivePost(
       message,
       reactionOptions,
