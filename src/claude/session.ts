@@ -104,6 +104,9 @@ interface Session {
 
   // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
   wasInterrupted: boolean;
+
+  // Task timing - when the current in_progress task started
+  inProgressTaskStart: number | null;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -264,6 +267,7 @@ export class SessionManager {
       isRestarting: false,
       isResumed: true,
       wasInterrupted: false,
+      inProgressTaskStart: null,
     };
 
     // Register session
@@ -479,6 +483,7 @@ export class SessionManager {
       isRestarting: false,
       isResumed: false,
       wasInterrupted: false,
+      inProgressTaskStart: null,
     };
 
     // Register session
@@ -645,8 +650,21 @@ export class SessionManager {
       return;
     }
 
-    // Format tasks nicely
-    let message = '📋 **Tasks**\n\n';
+    // Count progress
+    const completed = todos.filter(t => t.status === 'completed').length;
+    const total = todos.length;
+    const pct = Math.round((completed / total) * 100);
+
+    // Check if there's an in_progress task and track timing
+    const hasInProgress = todos.some(t => t.status === 'in_progress');
+    if (hasInProgress && !session.inProgressTaskStart) {
+      session.inProgressTaskStart = Date.now();
+    } else if (!hasInProgress) {
+      session.inProgressTaskStart = null;
+    }
+
+    // Format tasks nicely with progress header
+    let message = `📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
     for (const todo of todos) {
       let icon: string;
       let text: string;
@@ -655,12 +673,21 @@ export class SessionManager {
           icon = '✅';
           text = `~~${todo.content}~~`;
           break;
-        case 'in_progress':
+        case 'in_progress': {
           icon = '🔄';
-          text = `**${todo.activeForm}**`;
+          // Add elapsed time if we have a start time
+          let elapsed = '';
+          if (session.inProgressTaskStart) {
+            const secs = Math.round((Date.now() - session.inProgressTaskStart) / 1000);
+            if (secs >= 5) {  // Only show if >= 5 seconds
+              elapsed = ` (${secs}s)`;
+            }
+          }
+          text = `**${todo.activeForm}**${elapsed}`;
           break;
+        }
         default: // pending
-          icon = '⬜';
+          icon = '○';
           text = todo.content;
       }
       message += `${icon} ${text}\n`;
@@ -1327,6 +1354,56 @@ export class SessionManager {
     session.claude.sendMessage(content);
     session.lastActivityAt = new Date();
     this.startTyping(session);
+  }
+
+  /**
+   * Check if there's a paused (persisted but not active) session for this thread.
+   * This is used to detect when we should resume a session instead of ignoring the message.
+   */
+  hasPausedSession(threadId: string): boolean {
+    // If there's an active session, it's not paused
+    if (this.sessions.has(threadId)) return false;
+    // Check persistence
+    const persisted = this.sessionStore.load();
+    return persisted.has(threadId);
+  }
+
+  /**
+   * Resume a paused session and send a message to it.
+   * Called when a user sends a message to a thread with a paused session.
+   */
+  async resumePausedSession(threadId: string, message: string, files?: MattermostFile[]): Promise<void> {
+    const persisted = this.sessionStore.load();
+    const state = persisted.get(threadId);
+    if (!state) {
+      console.log(`  [resume] No persisted session found for ${threadId.substring(0, 8)}...`);
+      return;
+    }
+
+    const shortId = threadId.substring(0, 8);
+    console.log(`  🔄 Resuming paused session ${shortId}... for new message`);
+
+    // Resume the session (similar to initialize() but for a single session)
+    await this.resumeSession(state);
+
+    // Wait a moment for the session to be ready, then send the message
+    const session = this.sessions.get(threadId);
+    if (session && session.claude.isRunning()) {
+      const content = await this.buildMessageContent(message, files);
+      session.claude.sendMessage(content);
+      session.lastActivityAt = new Date();
+      this.startTyping(session);
+    } else {
+      console.log(`  ⚠️ Failed to resume session ${shortId}..., could not send message`);
+    }
+  }
+
+  /**
+   * Get persisted session info for access control checks
+   */
+  getPersistedSession(threadId: string): PersistedSession | undefined {
+    const persisted = this.sessionStore.load();
+    return persisted.get(threadId);
   }
 
   /** Kill a specific session */

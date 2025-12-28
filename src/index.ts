@@ -235,6 +235,38 @@ async function main() {
       return;
     }
 
+    // Check for paused session that can be resumed
+    if (session.hasPausedSession(threadRoot)) {
+      // If message starts with @mention to someone else, ignore it (side conversation)
+      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
+      if (mentionMatch && mentionMatch[1].toLowerCase() !== mattermost.getBotName().toLowerCase()) {
+        return; // Side conversation, don't interrupt
+      }
+
+      const content = mattermost.isBotMentioned(message)
+        ? mattermost.extractPrompt(message)
+        : message.trim();
+
+      // Check if user is allowed in the paused session
+      const persistedSession = session.getPersistedSession(threadRoot);
+      if (persistedSession) {
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+        if (!allowedUsers.has(username) && !mattermost.isUserAllowed(username)) {
+          // Not allowed - could request approval but that would require the session to be active
+          await mattermost.createPost(`⚠️ @${username} is not authorized to resume this session`, threadRoot);
+          return;
+        }
+      }
+
+      // Get any attached files (images)
+      const files = post.metadata?.files;
+
+      if (content || files?.length) {
+        await session.resumePausedSession(threadRoot, content, files);
+      }
+      return;
+    }
+
     // New session requires @mention
     if (!mattermost.isBotMentioned(message)) return;
 

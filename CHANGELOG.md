@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Paused sessions now resume on new message** - messages to paused sessions were being ignored
+  - After ⏸️ interrupt, sending a new message in the thread now resumes the session
+  - Previously messages without @mention were ignored because the session was removed from memory
+  - Added `hasPausedSession()`, `resumePausedSession()`, and `getPersistedSession()` methods
+
 ## [0.10.2] - 2025-12-28
 
 ### Changed
