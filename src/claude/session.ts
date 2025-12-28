@@ -88,6 +88,9 @@ interface Session {
 
   // Timeout warning state
   timeoutWarningPosted: boolean;
+
+  // Flag to suppress exit message during intentional restart (e.g., !cd)
+  isRestarting: boolean;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -249,6 +252,7 @@ export class SessionManager {
       updateTimer: null,
       typingTimer: null,
       timeoutWarningPosted: false,
+      isRestarting: false,
     };
 
     // Register session
@@ -877,6 +881,11 @@ export class SessionManager {
     const session = this.sessions.get(threadId);
     if (!session) return;
 
+    // If we're intentionally restarting (e.g., !cd), don't clean up or post exit message
+    if (session.isRestarting) {
+      return;
+    }
+
     this.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -1006,6 +1015,7 @@ export class SessionManager {
 
     // Stop the current Claude CLI
     this.stopTyping(session);
+    session.isRestarting = true;  // Suppress exit message during restart
     session.claude.kill();
 
     // Flush any pending content
@@ -1031,7 +1041,9 @@ export class SessionManager {
     // Start the new Claude CLI
     try {
       session.claude.start();
+      session.isRestarting = false;  // Successfully restarted
     } catch (err) {
+      session.isRestarting = false;  // Reset flag even on failure
       console.error('  ❌ Failed to restart Claude:', err);
       await this.mattermost.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
       return;
