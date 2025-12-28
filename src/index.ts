@@ -229,7 +229,12 @@ async function main() {
   console.log(`  ✅ ${bold('Ready!')} Waiting for @${config.mattermost.botName} mentions...`);
   console.log('');
 
+  let isShuttingDown = false;
   const shutdown = async () => {
+    // Guard against multiple shutdown calls (SIGINT + SIGTERM)
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+
     console.log('');
     console.log(`  👋 ${dim('Shutting down...')}`);
 

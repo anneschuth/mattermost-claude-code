@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2025-12-28
+
+### Changed
+- Resume message now shows version: "Session resumed after bot restart (v0.9.1)"
+- Session header is updated with new version after resume
+
+### Fixed
+- Fix duplicate "Bot shutting down" messages when stopping bot
+- Fix "[Exited: null]" message appearing during graceful shutdown
+
 ## [0.9.0] - 2025-12-28
 
 ### Added

@@ -138,6 +138,9 @@ export class SessionManager {
   // Cleanup timer
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Shutdown flag to suppress exit messages during graceful shutdown
+  private isShuttingDown = false;
+
   constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false) {
     this.mattermost = mattermost;
     this.workingDir = workingDir;
@@ -259,7 +262,7 @@ export class SessionManager {
 
       // Post resume message
       await this.mattermost.createPost(
-        `🔄 **Session resumed** after bot restart\n*Reconnected to Claude session. You can continue where you left off.*`,
+        `🔄 **Session resumed** after bot restart (v${pkg.version})\n*Reconnected to Claude session. You can continue where you left off.*`,
         state.threadId
       );
 
@@ -1137,6 +1140,11 @@ export class SessionManager {
       return;
     }
 
+    // If bot is shutting down, suppress exit messages (shutdown message already sent)
+    if (this.isShuttingDown) {
+      return;
+    }
+
     this.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -1144,7 +1152,7 @@ export class SessionManager {
     }
     await this.flush(session);
 
-    if (code !== 0) {
+    if (code !== 0 && code !== null) {
       await this.mattermost.createPost(`**[Exited: ${code}]**`, session.threadId);
     }
 
@@ -1547,6 +1555,9 @@ export class SessionManager {
 
   /** Kill all active sessions (for graceful shutdown) */
   killAllSessions(): void {
+    // Set shutdown flag to suppress exit messages
+    this.isShuttingDown = true;
+
     const count = this.sessions.size;
     for (const [, session] of this.sessions.entries()) {
       this.stopTyping(session);
