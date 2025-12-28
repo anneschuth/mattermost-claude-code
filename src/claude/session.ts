@@ -81,6 +81,9 @@ interface Session {
   // Timers (per-session)
   updateTimer: ReturnType<typeof setTimeout> | null;
   typingTimer: ReturnType<typeof setInterval> | null;
+
+  // Timeout warning state
+  timeoutWarningPosted: boolean;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -97,6 +100,7 @@ const EMOJI_TO_INDEX: Record<string, number> = {
 
 const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
 const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10); // 30 min
+const SESSION_WARNING_MS = 5 * 60 * 1000; // Warn 5 minutes before timeout
 
 // =============================================================================
 // SessionManager - Manages multiple concurrent Claude Code sessions
@@ -239,6 +243,7 @@ export class SessionManager {
       activeSubagents: new Map(),
       updateTimer: null,
       typingTimer: null,
+      timeoutWarningPosted: false,
     };
 
     // Register session
@@ -275,8 +280,9 @@ export class SessionManager {
     const session = this.sessions.get(threadId);
     if (!session) return;
 
-    // Update last activity
+    // Update last activity and reset timeout warning
     session.lastActivityAt = new Date();
+    session.timeoutWarningPosted = false;
 
     // Check for special tool uses that need custom handling
     if (event.type === 'assistant') {
@@ -1175,8 +1181,12 @@ export class SessionManager {
   /** Cleanup idle sessions that have exceeded timeout */
   private cleanupIdleSessions(): void {
     const now = Date.now();
+    const warningThreshold = SESSION_TIMEOUT_MS - SESSION_WARNING_MS;
+
     for (const [threadId, session] of this.sessions.entries()) {
       const idleTime = now - session.lastActivityAt.getTime();
+
+      // Check if we should time out
       if (idleTime > SESSION_TIMEOUT_MS) {
         const mins = Math.round(idleTime / 60000);
         const shortId = threadId.substring(0, 8);
@@ -1186,6 +1196,17 @@ export class SessionManager {
           session.threadId
         ).catch(() => {});
         this.killSession(threadId);
+      }
+      // Check if we should show warning (only once)
+      else if (idleTime > warningThreshold && !session.timeoutWarningPosted) {
+        const remainingMins = Math.round((SESSION_TIMEOUT_MS - idleTime) / 60000);
+        const shortId = threadId.substring(0, 8);
+        console.log(`  ⚠️ Session (${shortId}…) warning: ${remainingMins}m until timeout`);
+        this.mattermost.createPost(
+          `⚠️ **Session idle** — will time out in ~${remainingMins} minutes. Send a message to keep it alive.`,
+          session.threadId
+        ).catch(() => {});
+        session.timeoutWarningPosted = true;
       }
     }
   }
