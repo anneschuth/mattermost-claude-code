@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.6] - 2025-12-28
+
+### Fixed
+- **Fixed diff display** - Removed misleading line numbers and noise from diffs
+  - No more fake `@@ -1,1 +1,1 @@` headers (we don't have real line numbers)
+  - No more `\ No newline at end of file` noise
+  - Uses `diffLines()` for proper line-by-line change detection
+  - Shows context lines (unchanged parts) naturally
+
 ## [0.10.5] - 2025-12-28
 
 ### Changed

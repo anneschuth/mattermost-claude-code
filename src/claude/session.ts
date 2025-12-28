@@ -1065,19 +1065,39 @@ export class SessionManager {
         const oldStr = (input.old_string as string || '');
         const newStr = (input.new_string as string || '');
 
-        // Show unified diff if we have old/new strings
+        // Show diff if we have old/new strings
         if (oldStr || newStr) {
-          // Generate unified diff with 3 lines of context
-          const patch = Diff.createPatch(filePath, oldStr, newStr, '', '', { context: 3 });
+          // Use diff library to compute actual line-by-line changes
+          const changes = Diff.diffLines(oldStr, newStr);
+          const maxLines = 20;
+          let lineCount = 0;
+          const diffLines: string[] = [];
 
-          // Remove the header lines (first 4 lines: ---, +++, and two index lines)
-          const patchLines = patch.split('\n').slice(4);
-          const maxLines = 25;
+          for (const change of changes) {
+            const lines = change.value.replace(/\n$/, '').split('\n');
+            for (const line of lines) {
+              if (lineCount >= maxLines) break;
+              if (change.added) {
+                diffLines.push(`+ ${line}`);
+                lineCount++;
+              } else if (change.removed) {
+                diffLines.push(`- ${line}`);
+                lineCount++;
+              } else {
+                // Context line (unchanged)
+                diffLines.push(`  ${line}`);
+                lineCount++;
+              }
+            }
+            if (lineCount >= maxLines) break;
+          }
+
+          const totalLines = changes.reduce((sum, c) => sum + c.value.split('\n').length - 1, 0);
 
           let diff = `✏️ **Edit** \`${filePath}\`\n\`\`\`diff\n`;
-          diff += patchLines.slice(0, maxLines).join('\n');
-          if (patchLines.length > maxLines) {
-            diff += `\n... (+${patchLines.length - maxLines} more lines)`;
+          diff += diffLines.join('\n');
+          if (totalLines > maxLines) {
+            diff += `\n... (+${totalLines - maxLines} more lines)`;
           }
           diff += '\n```';
           return diff;
