@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 👎 Deny the message
 - Per-session allowlist tracked via `sessionAllowedUsers` in each session
 - **Side conversation support** - Messages starting with `@someone-else` are ignored, allowing users to chat without triggering the bot
+- **Dynamic session header** - The session start message updates to show current participants when users are invited or kicked
 
 ### Changed
 - Session owner is automatically added to session allowlist

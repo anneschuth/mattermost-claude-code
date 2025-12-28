@@ -52,6 +52,7 @@ interface Session {
   startedBy: string;
   startedAt: Date;
   lastActivityAt: Date;
+  promptPreview: string;  // For updating session header
 
   // Claude process
   claude: ClaudeCli;
@@ -70,6 +71,7 @@ interface Session {
   sessionAllowedUsers: Set<string>;
 
   // Display state
+  sessionStartPostId: string | null;  // The header post we update with participants
   tasksPostId: string | null;
   activeSubagents: Map<string, string>;  // toolUseId -> postId
 
@@ -198,28 +200,15 @@ export class SessionManager {
       return;
     }
 
-    // Post session start message
-    const shortDir = this.workingDir.replace(process.env.HOME || '', '~');
-    const sessionNum = this.sessions.size + 1;
-    const permMode = this.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+    // Post initial session message (will be updated by updateSessionHeader)
     const promptPreview = options.prompt.length > 60
       ? options.prompt.substring(0, 60) + '…'
       : options.prompt;
 
-    const msg = [
-      `### 🤖 mm-claude \`v${pkg.version}\``,
-      ``,
-      `| | |`,
-      `|:--|:--|`,
-      `| 📂 **Directory** | \`${shortDir}\` |`,
-      `| 👤 **Started by** | @${username} |`,
-      `| 🔢 **Session** | #${sessionNum} of ${MAX_SESSIONS} max |`,
-      `| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`,
-      ``,
-      `> ${promptPreview}`,
-    ].join('\n');
-
-    const post = await this.mattermost.createPost(msg, replyToPostId);
+    const post = await this.mattermost.createPost(
+      `### 🤖 mm-claude \`v${pkg.version}\`\n\n*Starting session...*`,
+      replyToPostId
+    );
     const actualThreadId = replyToPostId || post.id;
 
     // Create Claude CLI with options
@@ -236,6 +225,7 @@ export class SessionManager {
       startedBy: username,
       startedAt: new Date(),
       lastActivityAt: new Date(),
+      promptPreview,
       claude,
       currentPostId: null,
       pendingContent: '',
@@ -244,6 +234,7 @@ export class SessionManager {
       pendingMessageApproval: null,
       planApproved: false,
       sessionAllowedUsers: new Set([username]), // Owner is always allowed
+      sessionStartPostId: post.id,  // Track for updating participants
       tasksPostId: null,
       activeSubagents: new Map(),
       updateTimer: null,
@@ -255,6 +246,9 @@ export class SessionManager {
     this.registerPost(post.id, actualThreadId); // For cancel reactions on session start post
     const shortId = actualThreadId.substring(0, 8);
     console.log(`  ▶ Session #${this.sessions.size} started (${shortId}…) by @${username}`);
+
+    // Update the header with full session info
+    await this.updateSessionHeader(session);
 
     // Start typing indicator immediately so user sees activity
     this.startTyping(session);
@@ -684,6 +678,7 @@ export class SessionManager {
       session.sessionAllowedUsers.add(pending.fromUser);
       await this.mattermost.updatePost(pending.postId,
         `✅ @${pending.fromUser} invited to session by @${approver}`);
+      await this.updateSessionHeader(session);
       session.claude.sendMessage(pending.originalMessage);
       session.lastActivityAt = new Date();
       this.startTyping(session);
@@ -975,6 +970,7 @@ export class SessionManager {
       threadId
     );
     console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
+    await this.updateSessionHeader(session);
   }
 
   /** Kick a user from a specific session */
@@ -1015,11 +1011,53 @@ export class SessionManager {
         threadId
       );
       console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
+      await this.updateSessionHeader(session);
     } else {
       await this.mattermost.createPost(
         `⚠️ @${kickedUser} was not in this session`,
         threadId
       );
+    }
+  }
+
+  /** Update the session header post with current participants */
+  private async updateSessionHeader(session: Session): Promise<void> {
+    if (!session.sessionStartPostId) return;
+
+    const shortDir = this.workingDir.replace(process.env.HOME || '', '~');
+    const permMode = this.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+
+    // Build participants list (excluding owner who is shown in "Started by")
+    const otherParticipants = [...session.sessionAllowedUsers]
+      .filter(u => u !== session.startedBy)
+      .map(u => `@${u}`)
+      .join(', ');
+
+    const rows = [
+      `| 📂 **Directory** | \`${shortDir}\` |`,
+      `| 👤 **Started by** | @${session.startedBy} |`,
+    ];
+
+    if (otherParticipants) {
+      rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
+    }
+
+    rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
+
+    const msg = [
+      `### 🤖 mm-claude \`v${pkg.version}\``,
+      ``,
+      `| | |`,
+      `|:--|:--|`,
+      ...rows,
+      ``,
+      `> ${session.promptPreview}`,
+    ].join('\n');
+
+    try {
+      await this.mattermost.updatePost(session.sessionStartPostId, msg);
+    } catch (err) {
+      console.error('[Session] Failed to update session header:', err);
     }
   }
 
