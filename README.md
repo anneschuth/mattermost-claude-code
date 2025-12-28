@@ -111,15 +111,17 @@ CLI options override environment variables.
 
 ## Session Commands
 
-Type `/help` in any session thread to see available commands:
+Type `!help` in any session thread to see available commands:
 
 | Command | Description |
 |:--------|:------------|
-| `/help` | Show available commands |
-| `/invite @user` | Invite a user to this session |
-| `/kick @user` | Remove an invited user |
-| `/permissions interactive` | Enable interactive permissions |
-| `/stop` | Stop this session |
+| `!help` | Show available commands |
+| `!invite @user` | Invite a user to this session |
+| `!kick @user` | Remove an invited user |
+| `!permissions interactive` | Enable interactive permissions |
+| `!stop` | Stop this session |
+
+> **Note:** Commands use `!` prefix instead of `/` to avoid conflicts with Mattermost's slash commands.
 
 ## Session Collaboration
 
@@ -128,7 +130,7 @@ Type `/help` in any session thread to see available commands:
 Session owners can temporarily allow others to participate:
 
 ```
-/invite @colleague
+!invite @colleague
 ```
 
 The colleague can now send messages in this session thread.
@@ -138,7 +140,7 @@ The colleague can now send messages in this session thread.
 Remove an invited user from the session:
 
 ```
-/kick @colleague
+!kick @colleague
 ```
 
 ### Message Approval
@@ -161,7 +163,7 @@ Messages starting with `@someone-else` are ignored by the bot, allowing side con
 If the bot is running with `--skip-permissions` (auto mode), you can enable interactive permissions for a specific session:
 
 ```
-/permissions interactive
+!permissions interactive
 ```
 
 This allows collaboration by requiring approval for Claude's actions. Note: you can only downgrade (auto → interactive), not upgrade - this ensures security.
@@ -222,7 +224,7 @@ The session start message shows current status and updates when participants cha
 
 Stop a running session:
 
-- Type `/stop` or `/cancel` in the thread
+- Type `!stop` or `!cancel` in the thread
 - React with ❌ or 🛑 to any message in the thread
 
 ## Access Control
@@ -235,7 +237,7 @@ ALLOWED_USERS=alice,bob,carol
 
 - Only listed users can start sessions
 - Only listed users can approve permissions
-- Session owners can `/invite` others temporarily
+- Session owners can `!invite` others temporarily
 - Empty = anyone can use (be careful!)
 
 ## Environment Variables

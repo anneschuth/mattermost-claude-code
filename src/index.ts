@@ -99,25 +99,26 @@ async function main() {
       const lowerContent = content.toLowerCase();
 
       // Check for stop/cancel commands (only from allowed users)
-      if (lowerContent === '/stop' || lowerContent === 'stop' ||
-          lowerContent === '/cancel' || lowerContent === 'cancel') {
+      // Note: Using ! prefix instead of / to avoid Mattermost slash command interception
+      if (lowerContent === '!stop' || lowerContent === 'stop' ||
+          lowerContent === '!cancel' || lowerContent === 'cancel') {
         if (session.isUserAllowedInSession(threadRoot, username)) {
           await session.cancelSession(threadRoot, username);
         }
         return;
       }
 
-      // Check for /help command
-      if (lowerContent === '/help' || lowerContent === 'help') {
+      // Check for !help command
+      if (lowerContent === '!help' || lowerContent === 'help') {
         await mattermost.createPost(
           `**Available commands:**\n\n` +
           `| Command | Description |\n` +
           `|:--------|:------------|\n` +
-          `| \`/help\` | Show this help message |\n` +
-          `| \`/invite @user\` | Invite a user to this session |\n` +
-          `| \`/kick @user\` | Remove an invited user |\n` +
-          `| \`/permissions interactive\` | Enable interactive permissions |\n` +
-          `| \`/stop\` | Stop this session |\n\n` +
+          `| \`!help\` | Show this help message |\n` +
+          `| \`!invite @user\` | Invite a user to this session |\n` +
+          `| \`!kick @user\` | Remove an invited user |\n` +
+          `| \`!permissions interactive\` | Enable interactive permissions |\n` +
+          `| \`!stop\` | Stop this session |\n\n` +
           `**Reactions:**\n` +
           `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
           `- ❌ or 🛑 on any message to stop session`,
@@ -126,22 +127,22 @@ async function main() {
         return;
       }
 
-      // Check for /invite command
-      const inviteMatch = content.match(/^\/invite\s+@?(\w+)/i);
+      // Check for !invite command
+      const inviteMatch = content.match(/^!invite\s+@?([\w.-]+)/i);
       if (inviteMatch) {
         await session.inviteUser(threadRoot, inviteMatch[1], username);
         return;
       }
 
-      // Check for /kick command
-      const kickMatch = content.match(/^\/kick\s+@?(\w+)/i);
+      // Check for !kick command
+      const kickMatch = content.match(/^!kick\s+@?([\w.-]+)/i);
       if (kickMatch) {
         await session.kickUser(threadRoot, kickMatch[1], username);
         return;
       }
 
-      // Check for /permissions command
-      const permMatch = content.match(/^\/permissions?\s+(interactive|auto)/i);
+      // Check for !permissions command
+      const permMatch = content.match(/^!permissions?\s+(interactive|auto)/i);
       if (permMatch) {
         const mode = permMatch[1].toLowerCase();
         if (mode === 'interactive') {
