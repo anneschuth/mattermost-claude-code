@@ -17,23 +17,21 @@ Share Claude Code sessions live in a Mattermost channel. Your colleagues can wat
 
 ## How it works
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Your Local Machine                          │
-│  ┌─────────────────┐         ┌─────────────────────────────┐   │
-│  │ Claude Code CLI │◀───────▶│ mm-claude                   │   │
-│  │ (subprocess)    │ stdio   │ (this service)              │   │
-│  └─────────────────┘         └──────────┬──────────────────┘   │
-└─────────────────────────────────────────┼───────────────────────┘
-                                          │ WebSocket + REST API
-                                          ▼ (outbound only)
-┌─────────────────────────────────────────────────────────────────┐
-│                     Mattermost Server                           │
-│  ┌─────────────────┐         ┌─────────────────────────────┐   │
-│  │ Bot Account     │◀───────▶│ Channel                     │   │
-│  │ @claude-code    │         │ #claude-sessions            │   │
-│  └─────────────────┘         └─────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph local["Your Local Machine"]
+        cli["Claude Code CLI<br/>(subprocess)"]
+        mm["mm-claude<br/>(this service)"]
+        cli <-->|"stdio"| mm
+    end
+
+    subgraph server["Mattermost Server"]
+        bot["Bot Account<br/>@claude-code"]
+        channel["Channel<br/>#claude-sessions"]
+        bot <--> channel
+    end
+
+    mm -->|"WebSocket + REST API<br/>(outbound only)"| server
 ```
 
 Runs entirely on your machine - only **outbound** connections to Mattermost. No port forwarding needed!
