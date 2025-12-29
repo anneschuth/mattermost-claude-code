@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2025-12-29
+
+### Added
+- **`--setup` flag** - Re-run interactive setup wizard to reconfigure settings
+  - Existing .env values are used as defaults (press Enter to keep)
+  - Token field allows keeping existing token without re-entering
+  - New settings added since initial setup are presented with built-in defaults
+  - Config saved back to original location
+- **Chrome and worktree settings in onboarding** - New setup prompts for:
+  - Chrome integration (yes/no)
+  - Git worktree mode (prompt/off/require)
+
+### Changed
+- **Improved README** - New tagline and improved intro section
+- **Worktree documentation** - Added comprehensive Git Worktrees section to README
+- **Updated CLI options** - Added `--chrome`, `--no-chrome`, `--worktree-mode`, `--setup` to README
+
+### Fixed
+- **Warning icon alignment** - Fixed spacing of ⚠️ icon in CLI startup output
+- **WORKTREE_MODE documentation** - Fixed incorrect values in README (was `always`/`never`, now correctly `off`/`prompt`/`require`)
+
 ## [0.12.1] - 2025-12-29
 
 ### Fixed
