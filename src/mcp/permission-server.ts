@@ -13,7 +13,7 @@
  *   - ✅ (white_check_mark) Allow all future tool uses in this session
  *   - 👎 (-1) Deny this tool use
  *
- * Environment variables (passed by mm-claude):
+ * Environment variables (passed by claude-threads):
  *   - MATTERMOST_URL: Mattermost server URL
  *   - MATTERMOST_TOKEN: Bot access token
  *   - MATTERMOST_CHANNEL_ID: Channel to post permission requests
@@ -234,7 +234,7 @@ async function handlePermission(
 
 async function main() {
   const server = new McpServer({
-    name: 'mm-claude-permissions',
+    name: 'claude-threads-permissions',
     version: '1.0.0',
   });
 

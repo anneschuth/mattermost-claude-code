@@ -72,7 +72,7 @@ export class ClaudeCli extends EventEmitter {
       const mcpServerPath = this.getMcpServerPath();
       const mcpConfig = {
         mcpServers: {
-          'mm-claude-permissions': {
+          'claude-threads-permissions': {
             type: 'stdio',
             command: 'node',
             args: [mcpServerPath],
@@ -88,7 +88,7 @@ export class ClaudeCli extends EventEmitter {
         },
       };
       args.push('--mcp-config', JSON.stringify(mcpConfig));
-      args.push('--permission-prompt-tool', 'mcp__mm-claude-permissions__permission_prompt');
+      args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
     }
 
     // Chrome integration

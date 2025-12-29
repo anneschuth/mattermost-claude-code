@@ -26,7 +26,7 @@ export function checkForUpdates(): void {
     // Show CLI notification
     notifier.notify({
       message: `Update available: {currentVersion} → {latestVersion}
-Run: npm install -g mattermost-claude-code`,
+Run: npm install -g claude-threads`,
     });
   } catch {
     // Silently fail - update checking is not critical

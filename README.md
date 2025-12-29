@@ -1,6 +1,6 @@
 # Mattermost Claude Code Bridge
 
-[![npm version](https://img.shields.io/npm/v/mattermost-claude-code.svg)](https://www.npmjs.com/package/mattermost-claude-code)
+[![npm version](https://img.shields.io/npm/v/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Share Claude Code sessions live in a Mattermost channel. Your colleagues can watch you work with Claude in real-time, collaborate on sessions, and even trigger their own sessions from Mattermost.
@@ -21,7 +21,7 @@ Share Claude Code sessions live in a Mattermost channel. Your colleagues can wat
 flowchart TB
     subgraph local["Your Local Machine"]
         cli["Claude Code CLI<br/>(subprocess)"]
-        mm["mm-claude<br/>(this service)"]
+        mm["claude-threads<br/>(this service)"]
         cli <-->|"stdio"| mm
     end
 
@@ -47,20 +47,20 @@ Runs entirely on your machine - only **outbound** connections to Mattermost. No 
 ### 1. Install
 
 ```bash
-npm install -g mattermost-claude-code
+npm install -g claude-threads
 ```
 
 ### 2. Run
 
 ```bash
 cd /your/project
-mm-claude
+claude-threads
 ```
 
 On first run, an interactive setup wizard guides you through configuration:
 
 ```
-Welcome to mm-claude!
+Welcome to claude-threads!
 
 No configuration found. Let's set things up.
 
@@ -76,9 +76,9 @@ You'll need:
 ? Skip permission prompts? No
 
 ✓ Configuration saved!
-  ~/.config/mm-claude/.env
+  ~/.config/claude-threads/.env
 
-Starting mm-claude...
+Starting claude-threads...
 ```
 
 ### 3. Use
@@ -92,7 +92,7 @@ In Mattermost, mention the bot:
 ## CLI Options
 
 ```bash
-mm-claude [options]
+claude-threads [options]
 
 Options:
   --url <url>            Mattermost server URL
@@ -180,7 +180,7 @@ When Claude wants to execute a tool (edit file, run command, etc.):
 - **✅ Allow all** - Approve all future actions this session
 - **👎 Deny** - Reject this action
 
-To skip prompts: `mm-claude --skip-permissions` or set `SKIP_PERMISSIONS=true`
+To skip prompts: `claude-threads --skip-permissions` or set `SKIP_PERMISSIONS=true`
 
 ### Plan Mode
 
@@ -211,7 +211,7 @@ Claude's todo list shows live in Mattermost:
 The session start message shows current status and updates when participants change:
 
 ```
-🤖 mm-claude v0.5.1
+🤖 claude-threads v0.5.1
 
 | | |
 |:--|:--|
@@ -258,8 +258,8 @@ ALLOWED_USERS=alice,bob,carol
 
 Config file locations (in priority order):
 1. `./.env` (current directory)
-2. `~/.config/mm-claude/.env`
-3. `~/.mm-claude.env`
+2. `~/.config/claude-threads/.env`
+3. `~/.claude-threads.env`
 
 ## Code Display
 
@@ -271,7 +271,7 @@ Config file locations (in priority order):
 
 ## Auto-Updates
 
-mm-claude checks for updates every 30 minutes and notifies you when a new version is available:
+claude-threads checks for updates every 30 minutes and notifies you when a new version is available:
 
 - **CLI**: Shows a notification box on startup
 - **Mattermost**: Shows a warning in session headers
@@ -279,7 +279,7 @@ mm-claude checks for updates every 30 minutes and notifies you when a new versio
 To update:
 
 ```bash
-npm install -g mattermost-claude-code
+npm install -g claude-threads
 ```
 
 To disable update checks, set `NO_UPDATE_NOTIFIER=1`.

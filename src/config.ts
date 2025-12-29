@@ -8,8 +8,8 @@ let envLoaded = false;
 // Paths to search for .env files (in order of priority)
 const ENV_PATHS = [
   resolve(process.cwd(), '.env'),                          // Current directory
-  resolve(homedir(), '.config', 'mm-claude', '.env'),      // ~/.config/mm-claude/.env
-  resolve(homedir(), '.mm-claude.env'),                    // ~/.mm-claude.env
+  resolve(homedir(), '.config', 'claude-threads', '.env'),      // ~/.config/claude-threads/.env
+  resolve(homedir(), '.claude-threads.env'),                    // ~/.claude-threads.env
 ];
 
 function loadEnv(): void {

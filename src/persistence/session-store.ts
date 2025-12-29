@@ -40,7 +40,7 @@ interface SessionStoreData {
 }
 
 const STORE_VERSION = 1;
-const CONFIG_DIR = join(homedir(), '.config', 'mm-claude');
+const CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
 const SESSIONS_FILE = join(CONFIG_DIR, 'sessions.json');
 
 /**

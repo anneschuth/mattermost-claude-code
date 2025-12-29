@@ -1,12 +1,12 @@
 {
-  "name": "mattermost-claude-code",
+  "name": "claude-threads",
   "version": "0.11.2",
   "description": "Share Claude Code sessions live in a Mattermost channel with interactive features",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "mm-claude": "./dist/index.js",
-    "mm-claude-mcp": "./dist/mcp/permission-server.js"
+    "claude-threads": "./dist/index.js",
+    "claude-threads-mcp": "./dist/mcp/permission-server.js"
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -34,12 +34,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anneschuth/mattermost-claude-code.git"
+    "url": "git+https://github.com/anneschuth/claude-threads.git"
   },
   "bugs": {
-    "url": "https://github.com/anneschuth/mattermost-claude-code/issues"
+    "url": "https://github.com/anneschuth/claude-threads/issues"
   },
-  "homepage": "https://github.com/anneschuth/mattermost-claude-code#readme",
+  "homepage": "https://github.com/anneschuth/claude-threads#readme",
   "files": [
     "dist",
     "README.md",

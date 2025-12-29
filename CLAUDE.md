@@ -1,4 +1,4 @@
-# Claude Code Instructions for mattermost-claude-code
+# Claude Code Instructions for claude-threads
 
 ## What This Project Does
 
@@ -89,8 +89,8 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 1. **Claude CLI is started with:**
    ```
    claude --input-format stream-json --output-format stream-json --verbose \
-     --mcp-config '{"mcpServers":{"mm-claude-permissions":{...}}}' \
-     --permission-prompt-tool mcp__mm-claude-permissions__permission_prompt
+     --mcp-config '{"mcpServers":{"claude-threads-permissions":{...}}}' \
+     --permission-prompt-tool mcp__claude-threads-permissions__permission_prompt
    ```
 
 2. **When Claude needs permission** (e.g., to write a file), it calls the MCP tool
@@ -129,8 +129,8 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 **Config priority** (highest to lowest):
 1. CLI arguments (`--url`, `--token`, `--channel`, etc.)
 2. `./.env` (current directory)
-3. `~/.config/mm-claude/.env`
-4. `~/.mm-claude.env`
+3. `~/.config/claude-threads/.env`
+4. `~/.claude-threads.env`
 
 **First run:** If no config exists and no CLI args provided, interactive onboarding guides you through setup.
 
@@ -146,7 +146,7 @@ npm test             # (no tests yet)
 
 ## Testing Locally
 
-1. Create config: `~/.config/mm-claude/.env`
+1. Create config: `~/.config/claude-threads/.env`
 2. Build: `npm run build`
 3. Run: `npm start` (or `DEBUG=1 npm start` for verbose output)
 4. In Mattermost, @mention the bot: `@botname write "hello" to test.txt`
@@ -196,7 +196,7 @@ gh release create v0.x.x --title "v0.x.x" --generate-notes
 
 **npm Token Setup (already configured):**
 - Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
-- To update: https://github.com/anneschuth/mattermost-claude-code/settings/secrets/actions
+- To update: https://github.com/anneschuth/claude-threads/settings/secrets/actions
 
 ## Testing Deployed Versions in Mattermost
 

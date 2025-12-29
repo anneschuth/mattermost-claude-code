@@ -21,7 +21,7 @@ const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
 // Define CLI options
 program
-  .name('mm-claude')
+  .name('claude-threads')
   .version(pkg.version)
   .description('Share Claude Code sessions in Mattermost')
   .option('--url <url>', 'Mattermost server URL')
@@ -191,7 +191,7 @@ async function main() {
           await mattermost.createPost(formatReleaseNotes(notes), threadRoot);
         } else {
           await mattermost.createPost(
-            `📋 **mm-claude v${pkg.version}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/mattermost-claude-code/releases).`,
+            `📋 **claude-threads v${pkg.version}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/claude-threads/releases).`,
             threadRoot
           );
         }

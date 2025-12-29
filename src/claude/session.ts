@@ -1971,7 +1971,7 @@ export class SessionManager {
     // Check for available updates
     const updateInfo = getUpdateInfo();
     const updateNotice = updateInfo
-      ? `\n> ⚠️ **Update available:** v${updateInfo.current} → v${updateInfo.latest} - Run \`npm install -g mattermost-claude-code\`\n`
+      ? `\n> ⚠️ **Update available:** v${updateInfo.current} → v${updateInfo.latest} - Run \`npm install -g claude-threads\`\n`
       : '';
 
     // Get "What's new" from release notes
