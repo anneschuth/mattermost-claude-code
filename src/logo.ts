@@ -22,7 +22,7 @@ const colors = {
 export const CLI_LOGO = `
 ${colors.orange} ✴${colors.reset} ${colors.blue}▄█▀ ███${colors.reset} ${colors.orange}✴${colors.reset}   ${colors.bold}claude-threads${colors.reset}
 ${colors.orange}✴${colors.reset}  ${colors.blue}█▀   █${colors.reset}   ${colors.orange}✴${colors.reset}  ${colors.dim}Mattermost × Claude Code${colors.reset}
-${colors.orange}✴${colors.reset}  ${colors.blue}▀█▄  █${colors.reset}   ${colors.orange}✴${colors.reset}
+ ${colors.orange}✴${colors.reset} ${colors.blue}▀█▄  █${colors.reset}  ${colors.orange}✴${colors.reset}
 `;
 
 /**
@@ -32,7 +32,7 @@ ${colors.orange}✴${colors.reset}  ${colors.blue}▀█▄  █${colors.reset} 
 export const MATTERMOST_LOGO = `\`\`\`
  ✴ ▄█▀ ███ ✴   claude-threads
 ✴  █▀   █   ✴  Mattermost × Claude Code
-✴  ▀█▄  █   ✴
+ ✴ ▀█▄  █  ✴
 \`\`\``;
 
 /**
@@ -42,7 +42,7 @@ export function getMattermostLogo(version: string): string {
   return `\`\`\`
  ✴ ▄█▀ ███ ✴   claude-threads v${version}
 ✴  █▀   █   ✴  Mattermost × Claude Code
-✴  ▀█▄  █   ✴
+ ✴ ▀█▄  █  ✴
 \`\`\``;
 }
 

@@ -1,4 +1,10 @@
-# Mattermost Claude Code Bridge
+# Claude Threads
+
+```
+ ✴ ▄█▀ ███ ✴   claude-threads
+✴  █▀   █   ✴  Mattermost × Claude Code
+ ✴ ▀█▄  █  ✴
+```
 
 [![npm version](https://img.shields.io/npm/v/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
