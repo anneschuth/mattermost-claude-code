@@ -362,7 +362,7 @@ Claude CLI emits JSON events. Key event types:
 
 - [ ] Implement Slack platform support
 - [ ] Add rate limiting for API calls
-- [ ] Support file uploads via chat attachments
+- [x] Support file uploads via chat attachments - **Done**
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
 - [x] Add `!stop` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**

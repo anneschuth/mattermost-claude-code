@@ -105,7 +105,7 @@ export async function startSession(
   const claudeSessionId = randomUUID();
 
   // Create Claude CLI with options
-  const platformMcpConfig = platform.getMcpConfig?.() || undefined;
+  const platformMcpConfig = platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
     workingDir: ctx.workingDir,
     threadId: actualThreadId,
@@ -230,7 +230,7 @@ export async function resumeSession(
 
   // Create Claude CLI with resume flag
   const skipPerms = ctx.skipPermissions && !state.forceInteractivePermissions;
-  const platformMcpConfig = platform.getMcpConfig?.() || undefined;
+  const platformMcpConfig = platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
     threadId: state.threadId,

@@ -79,25 +79,19 @@ export class ClaudeCli extends EventEmitter {
       // Configure the permission MCP server
       const mcpServerPath = this.getMcpServerPath();
 
-      // Use platform-specific config if provided, otherwise fall back to process.env
+      // Platform config is required for MCP permission server
       const platformConfig = this.options.platformConfig;
-      const mcpEnv = platformConfig
-        ? {
-            MM_THREAD_ID: this.options.threadId || '',
-            MATTERMOST_URL: platformConfig.url,
-            MATTERMOST_TOKEN: platformConfig.token,
-            MATTERMOST_CHANNEL_ID: platformConfig.channelId,
-            ALLOWED_USERS: platformConfig.allowedUsers.join(','),
-            DEBUG: this.debug ? '1' : '',
-          }
-        : {
-            MM_THREAD_ID: this.options.threadId || '',
-            MATTERMOST_URL: process.env.MATTERMOST_URL || '',
-            MATTERMOST_TOKEN: process.env.MATTERMOST_TOKEN || '',
-            MATTERMOST_CHANNEL_ID: process.env.MATTERMOST_CHANNEL_ID || '',
-            ALLOWED_USERS: process.env.ALLOWED_USERS || '',
-            DEBUG: this.debug ? '1' : '',
-          };
+      if (!platformConfig) {
+        throw new Error('platformConfig is required when skipPermissions is false');
+      }
+      const mcpEnv = {
+        MM_THREAD_ID: this.options.threadId || '',
+        MATTERMOST_URL: platformConfig.url,
+        MATTERMOST_TOKEN: platformConfig.token,
+        MATTERMOST_CHANNEL_ID: platformConfig.channelId,
+        ALLOWED_USERS: platformConfig.allowedUsers.join(','),
+        DEBUG: this.debug ? '1' : '',
+      };
 
       const mcpConfig = {
         mcpServers: {

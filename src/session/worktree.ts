@@ -287,7 +287,7 @@ export async function createAndSwitchToWorktree(
         sessionId: newSessionId,
         resume: false,  // Fresh start - can't resume across directories
         chrome: options.chromeEnabled,
-        platformConfig: session.platform.getMcpConfig?.() || undefined,
+        platformConfig: session.platform.getMcpConfig(),
       };
       session.claude = new ClaudeCli(cliOptions);
 

@@ -15,7 +15,7 @@ export interface WorktreeInfo {
  * Persisted session state for resuming after bot restart
  */
 export interface PersistedSession {
-  platformId: string;            // NEW: Which platform instance (e.g., 'default', 'mattermost-main')
+  platformId: string;            // Which platform instance (e.g., 'default', 'mattermost-main')
   threadId: string;              // Thread ID within that platform
   claudeSessionId: string;       // UUID for --session-id / --resume
   startedBy: string;             // Username who started the session

@@ -171,7 +171,7 @@ export async function changeDirectory(
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig?.() || undefined,
+    platformConfig: session.platform.getMcpConfig(),
   };
   session.claude = new ClaudeCli(cliOptions);
 
@@ -353,7 +353,7 @@ export async function enableInteractivePermissions(
     sessionId: session.claudeSessionId,
     resume: true, // Resume to keep conversation context
     chrome: ctx.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig?.() || undefined,
+    platformConfig: session.platform.getMcpConfig(),
   };
   session.claude = new ClaudeCli(cliOptions);
 

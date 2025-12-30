@@ -28,13 +28,12 @@ import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
 import type { Session } from './types.js';
 
-// Re-export Session type for external use
+// Re-export Session type and constants for external use
 export type { Session } from './types.js';
+export { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
 
-// Constants
-export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
-export const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10);
-const SESSION_WARNING_MS = SESSION_TIMEOUT_MS - 5 * 60 * 1000; // 5 min before timeout
+// Import for internal use
+import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
 
 /**
  * SessionManager - Main orchestrator for Claude Code sessions
