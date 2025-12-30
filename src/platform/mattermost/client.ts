@@ -20,7 +20,6 @@ import type {
   PlatformReaction,
   PlatformFile,
 } from '../index.js';
-import type { Config } from '../../config.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
@@ -34,7 +33,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   readonly displayName: string;
 
   private ws: WebSocket | null = null;
-  private config: Config;
+  private url: string;
+  private token: string;
+  private channelId: string;
+  private botName: string;
+  private allowedUsers: string[];
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
@@ -51,20 +54,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     super();
     this.platformId = platformConfig.id;
     this.displayName = platformConfig.displayName;
-
-    // Convert platform config to legacy Config format for internal use
-    this.config = {
-      mattermost: {
-        url: platformConfig.url,
-        token: platformConfig.token,
-        channelId: platformConfig.channelId,
-        botName: platformConfig.botName,
-      },
-      allowedUsers: platformConfig.allowedUsers,
-      skipPermissions: platformConfig.skipPermissions,
-      chrome: false, // Not used in client
-      worktreeMode: 'prompt', // Not used in client
-    };
+    this.url = platformConfig.url;
+    this.token = platformConfig.token;
+    this.channelId = platformConfig.channelId;
+    this.botName = platformConfig.botName;
+    this.allowedUsers = platformConfig.allowedUsers;
   }
 
   // ============================================================================
@@ -126,11 +120,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.config.mattermost.url}/api/v4${path}`;
+    const url = `${this.url}/api/v4${path}`;
     const response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.config.mattermost.token}`,
+        Authorization: `Bearer ${this.token}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -172,7 +166,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     threadId?: string
   ): Promise<PlatformPost> {
     const request: CreatePostRequest = {
-      channel_id: this.config.mattermost.channelId,
+      channel_id: this.channelId,
       message,
       root_id: threadId,
     };
@@ -231,10 +225,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Download a file attachment
   async downloadFile(fileId: string): Promise<Buffer> {
-    const url = `${this.config.mattermost.url}/api/v4/files/${fileId}`;
+    const url = `${this.url}/api/v4/files/${fileId}`;
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.config.mattermost.token}`,
+        Authorization: `Bearer ${this.token}`,
       },
     });
 
@@ -268,7 +262,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     await this.getBotUser();
     wsLogger.debug(`Bot user ID: ${this.botUserId}`);
 
-    const wsUrl = this.config.mattermost.url
+    const wsUrl = this.url
       .replace(/^http/, 'ws')
       .concat('/api/v4/websocket');
 
@@ -283,7 +277,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             JSON.stringify({
               seq: 1,
               action: 'authentication_challenge',
-              data: { token: this.config.mattermost.token },
+              data: { token: this.token },
             })
           );
         }
@@ -340,7 +334,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         if (post.user_id === this.botUserId) return;
 
         // Only handle messages in our channel
-        if (post.channel_id !== this.config.mattermost.channelId) return;
+        if (post.channel_id !== this.channelId) return;
 
         // Get user info and emit (with normalized types)
         this.getUser(post.user_id).then((user) => {
@@ -424,16 +418,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Check if user is allowed to use the bot
   isUserAllowed(username: string): boolean {
-    if (this.config.allowedUsers.length === 0) {
+    if (this.allowedUsers.length === 0) {
       // If no allowlist configured, allow all
       return true;
     }
-    return this.config.allowedUsers.includes(username);
+    return this.allowedUsers.includes(username);
   }
 
   // Check if message mentions the bot
   isBotMentioned(message: string): boolean {
-    const botName = escapeRegExp(this.config.mattermost.botName);
+    const botName = escapeRegExp(this.botName);
     // Match @botname at start or with space before
     const mentionPattern = new RegExp(`(^|\\s)@${botName}\\b`, 'i');
     return mentionPattern.test(message);
@@ -441,7 +435,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Extract prompt from message (remove bot mention)
   extractPrompt(message: string): string {
-    const botName = escapeRegExp(this.config.mattermost.botName);
+    const botName = escapeRegExp(this.botName);
     return message
       .replace(new RegExp(`(^|\\s)@${botName}\\b`, 'gi'), ' ')
       .trim();
@@ -449,16 +443,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Get the bot name
   getBotName(): string {
-    return this.config.mattermost.botName;
+    return this.botName;
   }
 
   // Get MCP config for permission server
   getMcpConfig(): { url: string; token: string; channelId: string; allowedUsers: string[] } {
     return {
-      url: this.config.mattermost.url,
-      token: this.config.mattermost.token,
-      channelId: this.config.mattermost.channelId,
-      allowedUsers: this.config.allowedUsers,
+      url: this.url,
+      token: this.token,
+      channelId: this.channelId,
+      allowedUsers: this.allowedUsers,
     };
   }
 
@@ -470,7 +464,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       action: 'user_typing',
       seq: Date.now(),
       data: {
-        channel_id: this.config.mattermost.channelId,
+        channel_id: this.channelId,
         parent_id: parentId || '',
       },
     }));
