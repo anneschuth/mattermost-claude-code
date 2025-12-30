@@ -4,7 +4,7 @@ import { loadConfig, configExists, type CliArgs } from './config.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient } from './mattermost/client.js';
 import { SessionManager } from './claude/session.js';
-import type { MattermostPost, MattermostUser } from './mattermost/types.js';
+import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -96,13 +96,16 @@ async function main() {
   console.log('');
 
   const mattermost = new MattermostClient(config);
-  const session = new SessionManager(mattermost, workingDir, config.skipPermissions, config.chrome, config.worktreeMode);
+  const session = new SessionManager(workingDir, config.skipPermissions, config.chrome, config.worktreeMode);
 
-  mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
+  // Register platform (connects event handlers)
+  session.addPlatform(mattermost);
+
+  mattermost.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
     try {
     const username = user?.username || 'unknown';
     const message = post.message;
-    const threadRoot = post.root_id || post.id;
+    const threadRoot = post.rootId || post.id;
 
     // Check for !kill command FIRST - works anywhere, even as the first message
     const lowerMessage = message.trim().toLowerCase();
@@ -371,7 +374,7 @@ async function main() {
       console.error('  ❌ Error handling message:', err);
       // Try to notify user if possible
       try {
-        const threadRoot = post.root_id || post.id;
+        const threadRoot = post.rootId || post.id;
         await mattermost.createPost(
           `⚠️ An error occurred. Please try again.`,
           threadRoot

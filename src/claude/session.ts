@@ -1,6 +1,5 @@
 import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
-import { MattermostClient } from '../mattermost/client.js';
-import { MattermostFile } from '../mattermost/types.js';
+import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import {
   isApprovalEmoji,
   isDenialEmoji,
@@ -75,17 +74,22 @@ interface PendingMessageApproval {
 }
 
 /**
- * Represents a single Claude Code session tied to a Mattermost thread.
+ * Represents a single Claude Code session tied to a platform thread.
  * Each session has its own Claude CLI process and state.
  */
 interface Session {
   // Identity
-  threadId: string;
+  platformId: string;       // NEW: Which platform instance (e.g., 'mattermost-main')
+  threadId: string;         // Thread ID within that platform
+  sessionId: string;        // NEW: Composite key "platformId:threadId"
   claudeSessionId: string;  // UUID for --session-id / --resume
   startedBy: string;
   startedAt: Date;
   lastActivityAt: Date;
   sessionNumber: number;  // Session # when created
+
+  // Platform reference
+  platform: PlatformClient;  // NEW: Reference to platform client
 
   // Working directory (can be changed per-session)
   workingDir: string;
@@ -159,7 +163,7 @@ const SESSION_WARNING_MS = 5 * 60 * 1000; // Warn 5 minutes before timeout
 
 export class SessionManager {
   // Shared state
-  private mattermost: MattermostClient;
+  private platforms: Map<string, PlatformClient> = new Map();  // NEW: platformId -> client
   private workingDir: string;
   private skipPermissions: boolean;
   private chromeEnabled: boolean;
@@ -167,8 +171,8 @@ export class SessionManager {
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   // Multi-session storage
-  private sessions: Map<string, Session> = new Map();  // threadId -> Session
-  private postIndex: Map<string, string> = new Map();  // postId -> threadId (for reaction routing)
+  private sessions: Map<string, Session> = new Map();  // NEW: sessionId ("platformId:threadId") -> Session
+  private postIndex: Map<string, string> = new Map();  // NEW: "platformId:postId" -> sessionId
 
   // Persistence
   private sessionStore: SessionStore = new SessionStore();
@@ -179,24 +183,149 @@ export class SessionManager {
   // Shutdown flag to suppress exit messages during graceful shutdown
   private isShuttingDown = false;
 
-  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false, chromeEnabled = false, worktreeMode: WorktreeMode = 'prompt') {
-    this.mattermost = mattermost;
+  constructor(workingDir: string, skipPermissions = false, chromeEnabled = false, worktreeMode: WorktreeMode = 'prompt') {
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
 
-    // Listen for reactions to answer questions
-    this.mattermost.on('reaction', async (reaction, user) => {
+    // Start periodic cleanup of idle sessions
+    this.cleanupTimer = setInterval(() => this.cleanupIdleSessions(), 60000);
+  }
+
+  /**
+   * Add a platform client to the manager
+   * This binds event listeners for messages and reactions
+   */
+  addPlatform(client: PlatformClient): void {
+    this.platforms.set(client.platformId, client);
+
+    // Listen for messages
+    client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
       try {
-        await this.handleReaction(reaction.post_id, reaction.emoji_name, user?.username || 'unknown');
+        await this.handleMessage(client.platformId, post, user);
       } catch (err) {
-        console.error('  ❌ Error handling reaction:', err);
+        console.error(`  ❌ Error handling message from ${client.displayName}:`, err);
       }
     });
 
-    // Start periodic cleanup of idle sessions
-    this.cleanupTimer = setInterval(() => this.cleanupIdleSessions(), 60000);
+    // Listen for reactions
+    client.on('reaction', async (reaction, user: PlatformUser | null) => {
+      try {
+        await this.handleReaction(client.platformId, reaction.postId, reaction.emojiName, user?.username || 'unknown');
+      } catch (err) {
+        console.error(`  ❌ Error handling reaction from ${client.displayName}:`, err);
+      }
+    });
+  }
+
+  /**
+   * Get all registered platforms
+   */
+  getPlatforms(): Map<string, PlatformClient> {
+    return this.platforms;
+  }
+
+  /**
+   * BACKWARD COMPATIBILITY: Get first platform as "mattermost"
+   * This allows existing code to work during the migration
+   * @deprecated Use session.platform instead
+   */
+  private get mattermost(): PlatformClient {
+    const first = this.platforms.values().next().value;
+    if (!first) {
+      throw new Error('No platforms registered. Call addPlatform() first.');
+    }
+    return first;
+  }
+
+  /**
+   * Helper: Create composite session ID
+   */
+  private getSessionId(platformId: string, threadId: string): string {
+    return `${platformId}:${threadId}`;
+  }
+
+  /**
+   * Helper: Create composite post index key
+   */
+  private getPostIndexKey(platformId: string, postId: string): string {
+    return `${platformId}:${postId}`;
+  }
+
+  /**
+   * Handle incoming message from a platform
+   * TODO: Move message handling logic from index.ts here
+   */
+  private async handleMessage(platformId: string, post: PlatformPost, user: PlatformUser | null): Promise<void> {
+    // For now, this is a stub. Message handling is still in index.ts
+    // The actual implementation will be moved here in a later refactor
+    throw new Error('handleMessage not yet implemented - message handling still in index.ts');
+  }
+
+  /**
+   * Handle incoming reaction from a platform
+   */
+  private async handleReaction(platformId: string, postId: string, emojiName: string, username: string): Promise<void> {
+    // Check if user is allowed
+    const platform = this.platforms.get(platformId);
+    if (!platform) return;
+
+    if (!platform.isUserAllowed(username)) return;
+
+    // Find the session this post belongs to (use composite key)
+    const compositeKey = this.getPostIndexKey(platformId, postId);
+    const sessionId = this.postIndex.get(compositeKey);
+    if (!sessionId) return;
+
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    // Delegate to existing reaction handlers
+    await this.handleSessionReaction(session, postId, emojiName, username);
+  }
+
+  /**
+   * Handle reaction for a specific session
+   * This is called by the new handleReaction after looking up the session
+   */
+  private async handleSessionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
+    // Handle ❌ on worktree prompt (skip worktree, continue in main repo)
+    // Must be checked BEFORE cancel reaction handler since ❌ is also a cancel emoji
+    if (session.worktreePromptPostId === postId && emojiName === 'x') {
+      await this.handleWorktreeSkip(session.threadId, username);
+      return;
+    }
+
+    // Handle cancel reactions (❌ or 🛑) on any post in the session
+    if (isCancelEmoji(emojiName)) {
+      await this.cancelSession(session.threadId, username);
+      return;
+    }
+
+    // Handle interrupt reactions (⏸️) on any post in the session
+    if (isEscapeEmoji(emojiName)) {
+      await this.interruptSession(session.threadId, username);
+      return;
+    }
+
+    // Handle approval reactions
+    if (session.pendingApproval && session.pendingApproval.postId === postId) {
+      await this.handleApprovalReaction(session, emojiName, username);
+      return;
+    }
+
+    // Handle question reactions
+    if (session.pendingQuestionSet && session.pendingQuestionSet.currentPostId === postId) {
+      await this.handleQuestionReaction(session, postId, emojiName, username);
+      return;
+    }
+
+    // Handle message approval reactions
+    if (session.pendingMessageApproval && session.pendingMessageApproval.postId === postId) {
+      await this.handleMessageApprovalReaction(session, emojiName, username);
+      return;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -273,9 +402,21 @@ export class SessionManager {
     };
     const claude = new ClaudeCli(cliOptions);
 
+    // MIGRATION NOTE: For now, use 'default' platformId for resumed sessions
+    // This will be updated when persistence layer is migrated to store platformId
+    const platformId = 'default';
+    const platform = this.platforms.get(platformId);
+    if (!platform) {
+      throw new Error(`Platform '${platformId}' not found. Call addPlatform() before resuming sessions.`);
+    }
+    const sessionId = this.getSessionId(platformId, state.threadId);
+
     // Rebuild Session object from persisted state
     const session: Session = {
+      platformId,
       threadId: state.threadId,
+      sessionId,
+      platform,
       claudeSessionId: state.claudeSessionId,
       startedBy: state.startedBy,
       startedAt: new Date(state.startedAt),
@@ -309,8 +450,8 @@ export class SessionManager {
       queuedPrompt: state.queuedPrompt,
     };
 
-    // Register session
-    this.sessions.set(state.threadId, session);
+    // Register session (use new composite sessionId)
+    this.sessions.set(sessionId, session);
     if (state.sessionStartPostId) {
       this.registerPost(state.sessionStartPostId, state.threadId);
     }
@@ -450,7 +591,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   async startSession(
-    options: { prompt: string; files?: MattermostFile[] },
+    options: { prompt: string; files?: PlatformFile[] },
     username: string,
     replyToPostId?: string
   ): Promise<void> {
@@ -501,9 +642,21 @@ export class SessionManager {
     };
     const claude = new ClaudeCli(cliOptions);
 
+    // MIGRATION NOTE: For now, use 'default' platformId for new sessions
+    // This will be updated when message handling is moved into SessionManager
+    const platformId = 'default';
+    const platform = this.platforms.get(platformId);
+    if (!platform) {
+      throw new Error(`Platform '${platformId}' not found. Call addPlatform() before starting sessions.`);
+    }
+    const sessionId = this.getSessionId(platformId, actualThreadId);
+
     // Create the session object
     const session: Session = {
+      platformId,
       threadId: actualThreadId,
+      sessionId,
+      platform,
       claudeSessionId,
       startedBy: username,
       startedAt: new Date(),
@@ -532,8 +685,8 @@ export class SessionManager {
       activeToolStarts: new Map(),
     };
 
-    // Register session
-    this.sessions.set(actualThreadId, session);
+    // Register session (use new composite sessionId)
+    this.sessions.set(sessionId, session);
     this.registerPost(post.id, actualThreadId); // For cancel reactions on session start post
     const shortId = actualThreadId.substring(0, 8);
     console.log(`  ▶ Session #${this.sessions.size} started (${shortId}…) by @${username}`);
@@ -583,7 +736,7 @@ export class SessionManager {
    * Used when user specifies "on branch X" or "!worktree X" in their initial message.
    */
   async startSessionWithWorktree(
-    options: { prompt: string; files?: MattermostFile[] },
+    options: { prompt: string; files?: PlatformFile[] },
     branch: string,
     username: string,
     replyToPostId?: string
@@ -981,52 +1134,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
   // Reaction Handling
   // ---------------------------------------------------------------------------
-
-  private async handleReaction(postId: string, emojiName: string, username: string): Promise<void> {
-    // Check if user is allowed
-    if (!this.mattermost.isUserAllowed(username)) return;
-
-    // Find the session this post belongs to
-    const session = this.getSessionByPost(postId);
-    if (!session) return;
-
-    // Handle ❌ on worktree prompt (skip worktree, continue in main repo)
-    // Must be checked BEFORE cancel reaction handler since ❌ is also a cancel emoji
-    if (session.worktreePromptPostId === postId && emojiName === 'x') {
-      await this.handleWorktreeSkip(session.threadId, username);
-      return;
-    }
-
-    // Handle cancel reactions (❌ or 🛑) on any post in the session
-    if (isCancelEmoji(emojiName)) {
-      await this.cancelSession(session.threadId, username);
-      return;
-    }
-
-    // Handle interrupt reactions (⏸️) on any post in the session
-    if (isEscapeEmoji(emojiName)) {
-      await this.interruptSession(session.threadId, username);
-      return;
-    }
-
-    // Handle approval reactions
-    if (session.pendingApproval && session.pendingApproval.postId === postId) {
-      await this.handleApprovalReaction(session, emojiName, username);
-      return;
-    }
-
-    // Handle question reactions
-    if (session.pendingQuestionSet && session.pendingQuestionSet.currentPostId === postId) {
-      await this.handleQuestionReaction(session, postId, emojiName, username);
-      return;
-    }
-
-    // Handle message approval reactions
-    if (session.pendingMessageApproval && session.pendingMessageApproval.postId === postId) {
-      await this.handleMessageApprovalReaction(session, emojiName, username);
-      return;
-    }
-  }
+  // NOTE: Reaction handling now uses the new handleReaction method defined above
 
   private async handleQuestionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
     if (!session.pendingQuestionSet) return;
@@ -1258,12 +1366,12 @@ export class SessionManager {
    */
   private async buildMessageContent(
     text: string,
-    files?: MattermostFile[]
+    files?: PlatformFile[]
   ): Promise<string | ContentBlock[]> {
     // Filter to only image files
     const imageFiles = files?.filter(f =>
-      f.mime_type.startsWith('image/') &&
-      ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(f.mime_type)
+      f.mimeType.startsWith('image/') &&
+      ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(f.mimeType)
     ) || [];
 
     // If no images, return plain text
@@ -1277,6 +1385,10 @@ export class SessionManager {
     // Download and add each image
     for (const file of imageFiles) {
       try {
+        if (!this.mattermost.downloadFile) {
+          console.warn(`  ⚠️ Platform does not support file downloads, skipping ${file.name}`);
+          continue;
+        }
         const buffer = await this.mattermost.downloadFile(file.id);
         const base64 = buffer.toString('base64');
 
@@ -1284,13 +1396,13 @@ export class SessionManager {
           type: 'image',
           source: {
             type: 'base64',
-            media_type: file.mime_type,
+            media_type: file.mimeType,
             data: base64,
           },
         });
 
         if (this.debug) {
-          console.log(`  📷 Attached image: ${file.name} (${file.mime_type}, ${Math.round(buffer.length / 1024)}KB)`);
+          console.log(`  📷 Attached image: ${file.name} (${file.mimeType}, ${Math.round(buffer.length / 1024)}KB)`);
         }
       } catch (err) {
         console.error(`  ⚠️ Failed to download image ${file.name}:`, err);
@@ -1514,7 +1626,7 @@ export class SessionManager {
   }
 
   /** Send a follow-up message to an existing session */
-  async sendFollowUp(threadId: string, message: string, files?: MattermostFile[]): Promise<void> {
+  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session || !session.claude.isRunning()) return;
     const content = await this.buildMessageContent(message, files);
@@ -1539,7 +1651,7 @@ export class SessionManager {
    * Resume a paused session and send a message to it.
    * Called when a user sends a message to a thread with a paused session.
    */
-  async resumePausedSession(threadId: string, message: string, files?: MattermostFile[]): Promise<void> {
+  async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
     const persisted = this.sessionStore.load();
     const state = persisted.get(threadId);
     if (!state) {
