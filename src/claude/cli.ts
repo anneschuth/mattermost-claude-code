@@ -25,6 +25,14 @@ export interface ImageContentBlock {
 
 export type ContentBlock = TextContentBlock | ImageContentBlock;
 
+export interface PlatformMcpConfig {
+  type: string;
+  url: string;
+  token: string;
+  channelId: string;
+  allowedUsers: string[];
+}
+
 export interface ClaudeCliOptions {
   workingDir: string;
   threadId?: string;  // Thread ID for permission requests
@@ -32,6 +40,7 @@ export interface ClaudeCliOptions {
   sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
   resume?: boolean;    // If true, use --resume instead of --session-id
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
+  platformConfig?: PlatformMcpConfig;  // Platform-specific config for MCP server
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -70,20 +79,30 @@ export class ClaudeCli extends EventEmitter {
     } else {
       // Configure the permission MCP server
       const mcpServerPath = this.getMcpServerPath();
+
+      // Platform config is required for MCP permission server
+      const platformConfig = this.options.platformConfig;
+      if (!platformConfig) {
+        throw new Error('platformConfig is required when skipPermissions is false');
+      }
+      // Platform-agnostic environment variables for MCP permission server
+      const mcpEnv = {
+        PLATFORM_TYPE: platformConfig.type,
+        PLATFORM_URL: platformConfig.url,
+        PLATFORM_TOKEN: platformConfig.token,
+        PLATFORM_CHANNEL_ID: platformConfig.channelId,
+        PLATFORM_THREAD_ID: this.options.threadId || '',
+        ALLOWED_USERS: platformConfig.allowedUsers.join(','),
+        DEBUG: this.debug ? '1' : '',
+      };
+
       const mcpConfig = {
         mcpServers: {
           'claude-threads-permissions': {
             type: 'stdio',
             command: 'node',
             args: [mcpServerPath],
-            env: {
-              MM_THREAD_ID: this.options.threadId || '',
-              MATTERMOST_URL: process.env.MATTERMOST_URL || '',
-              MATTERMOST_TOKEN: process.env.MATTERMOST_TOKEN || '',
-              MATTERMOST_CHANNEL_ID: process.env.MATTERMOST_CHANNEL_ID || '',
-              ALLOWED_USERS: process.env.ALLOWED_USERS || '',
-              DEBUG: this.debug ? '1' : '',
-            },
+            env: mcpEnv,
           },
         },
       };

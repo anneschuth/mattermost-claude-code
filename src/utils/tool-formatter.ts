@@ -1,12 +1,16 @@
 /**
- * Tool formatting utilities for displaying Claude tool calls in Mattermost
+ * Tool formatting utilities for displaying Claude tool calls in chat platforms
  *
  * This module provides shared formatting logic used by both:
- * - src/claude/session.ts (main bot)
+ * - src/session/events.ts (main bot)
  * - src/mcp/permission-server.ts (MCP permission handler)
+ *
+ * Uses PlatformFormatter abstraction to support different markdown dialects
+ * (e.g., Mattermost standard markdown vs Slack mrkdwn).
  */
 
 import * as Diff from 'diff';
+import type { PlatformFormatter } from '../platform/formatter.js';
 
 export interface ToolInput {
   [key: string]: unknown;
@@ -60,7 +64,7 @@ export function parseMcpToolName(
 }
 
 /**
- * Format a tool use for display in Mattermost
+ * Format a tool use for display in chat platforms
  *
  * @param toolName - The name of the tool being called
  * @param input - The tool input parameters
@@ -70,6 +74,7 @@ export function parseMcpToolName(
 export function formatToolUse(
   toolName: string,
   input: ToolInput,
+  formatter: PlatformFormatter,
   options: FormatOptions = {}
 ): string | null {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -77,7 +82,7 @@ export function formatToolUse(
 
   switch (toolName) {
     case 'Read':
-      return `📄 **Read** \`${short(input.file_path as string)}\``;
+      return `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(short(input.file_path as string))}`;
 
     case 'Edit': {
       const filePath = short(input.file_path as string);
@@ -114,15 +119,17 @@ export function formatToolUse(
           0
         );
 
-        let diff = `✏️ **Edit** \`${filePath}\`\n\`\`\`diff\n`;
-        diff += diffLines.join('\n');
+        let diff = `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(filePath)}\n${formatter.formatCodeBlock(diffLines.join('\n'), 'diff')}`;
         if (totalLines > maxLines) {
-          diff += `\n... (+${totalLines - maxLines} more lines)`;
+          diff = `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(filePath)}\n`;
+          diff += formatter.formatCodeBlock(
+            diffLines.join('\n') + `\n... (+${totalLines - maxLines} more lines)`,
+            'diff'
+          );
         }
-        diff += '\n```';
         return diff;
       }
-      return `✏️ **Edit** \`${filePath}\``;
+      return `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(filePath)}`;
     }
 
     case 'Write': {
@@ -135,15 +142,17 @@ export function formatToolUse(
       if (opts.detailed && content && lineCount > 0) {
         const maxLines = 6;
         const previewLines = lines.slice(0, maxLines);
-        let preview = `📝 **Write** \`${filePath}\` *(${lineCount} lines)*\n\`\`\`\n`;
-        preview += previewLines.join('\n');
+        let preview = `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)} ${formatter.formatItalic(`(${lineCount} lines)`)}\n`;
         if (lineCount > maxLines) {
-          preview += `\n... (${lineCount - maxLines} more lines)`;
+          preview += formatter.formatCodeBlock(
+            previewLines.join('\n') + `\n... (${lineCount - maxLines} more lines)`
+          );
+        } else {
+          preview += formatter.formatCodeBlock(previewLines.join('\n'));
         }
-        preview += '\n```';
         return preview;
       }
-      return `📝 **Write** \`${filePath}\``;
+      return `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)}`;
     }
 
     case 'Bash': {
@@ -152,20 +161,20 @@ export function formatToolUse(
         opts.maxCommandLength
       );
       const truncated = cmd.length >= opts.maxCommandLength;
-      return `💻 **Bash** \`${cmd}${truncated ? '...' : ''}\``;
+      return `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd + (truncated ? '...' : ''))}`;
     }
 
     case 'Glob':
-      return `🔍 **Glob** \`${input.pattern}\``;
+      return `🔍 ${formatter.formatBold('Glob')} ${formatter.formatCode(input.pattern as string)}`;
 
     case 'Grep':
-      return `🔎 **Grep** \`${input.pattern}\``;
+      return `🔎 ${formatter.formatBold('Grep')} ${formatter.formatCode(input.pattern as string)}`;
 
     case 'Task':
       return null; // Handled specially with subagent display
 
     case 'EnterPlanMode':
-      return `📋 **Planning...**`;
+      return `📋 ${formatter.formatBold('Planning...')}`;
 
     case 'ExitPlanMode':
       return null; // Handled specially with approval buttons
@@ -178,11 +187,11 @@ export function formatToolUse(
 
     case 'WebFetch': {
       const url = ((input.url as string) || '').substring(0, 40);
-      return `🌐 **Fetching** \`${url}\``;
+      return `🌐 ${formatter.formatBold('Fetching')} ${formatter.formatCode(url)}`;
     }
 
     case 'WebSearch':
-      return `🔍 **Searching** \`${input.query}\``;
+      return `🔍 ${formatter.formatBold('Searching')} ${formatter.formatCode(input.query as string)}`;
 
     default: {
       // Handle MCP tools: mcp__server__tool
@@ -190,11 +199,11 @@ export function formatToolUse(
       if (mcpParts) {
         // Special formatting for Claude in Chrome tools
         if (mcpParts.server === 'claude-in-chrome') {
-          return formatChromeToolUse(mcpParts.tool, input);
+          return formatChromeToolUse(mcpParts.tool, input, formatter);
         }
-        return `🔌 **${mcpParts.tool}** *(${mcpParts.server})*`;
+        return `🔌 ${formatter.formatBold(mcpParts.tool)} ${formatter.formatItalic(`(${mcpParts.server})`)}`;
       }
-      return `● **${toolName}**`;
+      return `● ${formatter.formatBold(toolName)}`;
     }
   }
 }
@@ -204,31 +213,33 @@ export function formatToolUse(
  *
  * @param toolName - The name of the tool
  * @param input - The tool input parameters
+ * @param formatter - Platform-specific markdown formatter
  * @returns Formatted string for permission prompts
  */
 export function formatToolForPermission(
   toolName: string,
-  input: ToolInput
+  input: ToolInput,
+  formatter: PlatformFormatter
 ): string {
   const short = (p: string) => shortenPath(p);
 
   switch (toolName) {
     case 'Read':
-      return `📄 **Read** \`${short(input.file_path as string)}\``;
+      return `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(short(input.file_path as string))}`;
     case 'Write':
-      return `📝 **Write** \`${short(input.file_path as string)}\``;
+      return `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(short(input.file_path as string))}`;
     case 'Edit':
-      return `✏️ **Edit** \`${short(input.file_path as string)}\``;
+      return `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(short(input.file_path as string))}`;
     case 'Bash': {
       const cmd = ((input.command as string) || '').substring(0, 100);
-      return `💻 **Bash** \`${cmd}${cmd.length >= 100 ? '...' : ''}\``;
+      return `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd + (cmd.length >= 100 ? '...' : ''))}`;
     }
     default: {
       const mcpParts = parseMcpToolName(toolName);
       if (mcpParts) {
-        return `🔌 **${mcpParts.tool}** *(${mcpParts.server})*`;
+        return `🔌 ${formatter.formatBold(mcpParts.tool)} ${formatter.formatItalic(`(${mcpParts.server})`)}`;
       }
-      return `● **${toolName}**`;
+      return `● ${formatter.formatBold(toolName)}`;
     }
   }
 }
@@ -238,11 +249,13 @@ export function formatToolForPermission(
  *
  * @param tool - The Chrome tool name (after mcp__claude-in-chrome__)
  * @param input - The tool input parameters
+ * @param formatter - Platform-specific markdown formatter
  * @returns Formatted string for display
  */
-export function formatChromeToolUse(
+function formatChromeToolUse(
   tool: string,
-  input: ToolInput
+  input: ToolInput,
+  formatter: PlatformFormatter
 ): string {
   const action = (input.action as string) || '';
   const coord = input.coordinate as number[] | undefined;
@@ -277,27 +290,27 @@ export function formatChromeToolUse(
         default:
           detail = action || 'action';
       }
-      return `🌐 **Chrome**[computer] \`${detail}\``;
+      return `🌐 ${formatter.formatBold('Chrome')}[computer] ${formatter.formatCode(detail)}`;
     }
     case 'navigate':
-      return `🌐 **Chrome**[navigate] \`${url.substring(0, 50)}${url.length > 50 ? '...' : ''}\``;
+      return `🌐 ${formatter.formatBold('Chrome')}[navigate] ${formatter.formatCode(url.substring(0, 50) + (url.length > 50 ? '...' : ''))}`;
     case 'tabs_context_mcp':
-      return `🌐 **Chrome**[tabs] reading context`;
+      return `🌐 ${formatter.formatBold('Chrome')}[tabs] reading context`;
     case 'tabs_create_mcp':
-      return `🌐 **Chrome**[tabs] creating new tab`;
+      return `🌐 ${formatter.formatBold('Chrome')}[tabs] creating new tab`;
     case 'read_page':
-      return `🌐 **Chrome**[read_page] ${input.filter === 'interactive' ? 'interactive elements' : 'accessibility tree'}`;
+      return `🌐 ${formatter.formatBold('Chrome')}[read_page] ${input.filter === 'interactive' ? 'interactive elements' : 'accessibility tree'}`;
     case 'find':
-      return `🌐 **Chrome**[find] \`${input.query || ''}\``;
+      return `🌐 ${formatter.formatBold('Chrome')}[find] ${formatter.formatCode((input.query as string) || '')}`;
     case 'form_input':
-      return `🌐 **Chrome**[form_input] setting value`;
+      return `🌐 ${formatter.formatBold('Chrome')}[form_input] setting value`;
     case 'get_page_text':
-      return `🌐 **Chrome**[get_page_text] extracting content`;
+      return `🌐 ${formatter.formatBold('Chrome')}[get_page_text] extracting content`;
     case 'javascript_tool':
-      return `🌐 **Chrome**[javascript] executing script`;
+      return `🌐 ${formatter.formatBold('Chrome')}[javascript] executing script`;
     case 'gif_creator':
-      return `🌐 **Chrome**[gif] ${action}`;
+      return `🌐 ${formatter.formatBold('Chrome')}[gif] ${action}`;
     default:
-      return `🌐 **Chrome**[${tool}]`;
+      return `🌐 ${formatter.formatBold('Chrome')}[${tool}]`;
   }
 }

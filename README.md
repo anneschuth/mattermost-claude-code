@@ -68,25 +68,41 @@ claude-threads
 On first run, an interactive setup wizard guides you through configuration:
 
 ```
-Welcome to claude-threads!
+  claude-threads setup
+  ─────────────────────────────────
 
-No configuration found. Let's set things up.
+  Welcome! Let's configure claude-threads.
 
-You'll need:
-• A Mattermost bot account with a token
-• A channel ID where the bot will listen
+? Default working directory: /home/user/projects
+? Enable Chrome integration? No
+? Git worktree mode: Prompt
 
-? Mattermost URL: https://your-mattermost.com
+  Now let's add your platform connections.
+
+? First platform: Mattermost
+? Platform ID: default
+? Display name: Mattermost
+
+  Mattermost setup:
+
+? Server URL: https://chat.example.com
 ? Bot token: ********
 ? Channel ID: abc123def456
 ? Bot mention name: claude-code
-? Allowed usernames: alice,bob
-? Skip permission prompts? No
+? Allowed usernames (optional): alice,bob
+? Auto-approve all actions? No
 
-✓ Configuration saved!
-  ~/.config/claude-threads/.env
+  ✓ Added Mattermost
 
-Starting claude-threads...
+? Add another platform? No
+
+  ✓ Configuration saved!
+    ~/.config/claude-threads/config.yaml
+
+  Configured 1 platform(s):
+    • Mattermost (mattermost)
+
+  Starting claude-threads...
 ```
 
 ### 3. Use
@@ -290,10 +306,13 @@ Stop a running session:
 
 ## Access Control
 
-Set `ALLOWED_USERS` to restrict who can use the bot:
+Set `allowedUsers` in your platform config to restrict who can use the bot:
 
-```env
-ALLOWED_USERS=alice,bob,carol
+```yaml
+platforms:
+  - id: mattermost-main
+    # ...
+    allowedUsers: [alice, bob, carol]
 ```
 
 - Only listed users can start sessions
@@ -301,26 +320,57 @@ ALLOWED_USERS=alice,bob,carol
 - Session owners can `!invite` others temporarily
 - Empty = anyone can use (be careful!)
 
-## Environment Variables
+## Configuration
+
+Configuration is stored in YAML format at `~/.config/claude-threads/config.yaml`.
+
+### Example Config
+
+```yaml
+version: 1
+workingDir: /home/user/repos/myproject
+chrome: false
+worktreeMode: prompt
+
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    displayName: Main Team
+    url: https://chat.example.com
+    token: your-bot-token
+    channelId: abc123
+    botName: claude-code
+    allowedUsers: [alice, bob]
+    skipPermissions: false
+```
+
+### Global Settings
+
+| Setting | Description |
+|---------|-------------|
+| `workingDir` | Default working directory for Claude |
+| `chrome` | Enable Chrome integration (`true`/`false`) |
+| `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` |
+
+### Platform Settings (Mattermost)
+
+| Setting | Description |
+|---------|-------------|
+| `url` | Mattermost server URL |
+| `token` | Bot access token |
+| `channelId` | Channel to listen in |
+| `botName` | Mention name (default: `claude-code`) |
+| `allowedUsers` | List of usernames who can use the bot |
+| `skipPermissions` | Auto-approve actions (`true`/`false`) |
+
+### Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `MATTERMOST_URL` | Server URL |
-| `MATTERMOST_TOKEN` | Bot token |
-| `MATTERMOST_CHANNEL_ID` | Channel to listen in |
-| `MATTERMOST_BOT_NAME` | Mention name (default: `claude-code`) |
-| `ALLOWED_USERS` | Comma-separated usernames |
-| `SKIP_PERMISSIONS` | `true` to auto-approve actions |
-| `CLAUDE_CHROME` | `true` to enable Chrome integration |
-| `WORKTREE_MODE` | `off`, `prompt`, or `require` (default: `prompt`) |
 | `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
 | `SESSION_TIMEOUT_MS` | Idle timeout in ms (default: `1800000` = 30 min) |
 | `NO_UPDATE_NOTIFIER` | Set to `1` to disable update checks |
-
-Config file locations (in priority order):
-1. `./.env` (current directory)
-2. `~/.config/claude-threads/.env`
-3. `~/.claude-threads.env`
+| `DEBUG` | Set to `1` for verbose logging |
 
 ## Code Display
 

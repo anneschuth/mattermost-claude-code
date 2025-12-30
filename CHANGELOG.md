@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2025-12-30
+
+### Added
+- **Multi-platform architecture** - Foundation for supporting multiple chat platforms
+  - New `PlatformClient` interface abstracts platform differences
+  - Normalized types: `PlatformPost`, `PlatformUser`, `PlatformReaction`, `PlatformFile`
+  - Mattermost implementation moved to `src/platform/mattermost/`
+  - Slack support architecture ready (implementation pending)
+- **YAML-based configuration** - New config format
+  - Config file: `~/.config/claude-threads/config.yaml`
+  - Support for multiple platform instances simultaneously
+  - Interactive onboarding wizard creates YAML config
+
+### Changed
+- **Modular session management** - Broke 2,500-line monolith into focused modules
+  - `session/manager.ts` (~635 lines) - Thin orchestrator
+  - `session/lifecycle.ts` (~590 lines) - Session start/resume/exit
+  - `session/events.ts` (~480 lines) - Claude CLI event handling
+  - `session/commands.ts` (~510 lines) - User commands
+  - `session/reactions.ts` (~210 lines) - Emoji reaction handling
+  - `session/worktree.ts` (~520 lines) - Git worktree management
+  - `session/streaming.ts` (~180 lines) - Message batching
+  - Uses dependency injection for testability
+- **Platform-agnostic utilities** - Moved emoji helpers to `src/utils/emoji.ts`
+- **Cleaner logo exports** - Renamed to generic `getLogo()`, `LOGO`, `LOGO_INLINE`
+
+### Removed
+- **Legacy `.env` configuration** - Now uses YAML only (`config.yaml`)
+- **`dotenv` dependency** - No longer needed
+- Deprecated Mattermost-specific exports (`getMattermostLogo`, `MATTERMOST_LOGO`)
+- Internal documentation files (moved to CLAUDE.md)
+
 ## [0.13.0] - 2025-12-29
 
 ### Added

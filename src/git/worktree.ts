@@ -135,7 +135,7 @@ export async function listWorktrees(repoRoot: string): Promise<WorktreeInfo[]> {
 /**
  * Check if a branch exists (local or remote)
  */
-export async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
+async function branchExists(repoRoot: string, branch: string): Promise<boolean> {
   try {
     // Check local branches
     await execGit(['rev-parse', '--verify', `refs/heads/${branch}`], repoRoot);

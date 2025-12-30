@@ -1,0 +1,607 @@
+/**
+ * Session lifecycle management module
+ *
+ * Handles session start, resume, exit, cleanup, and shutdown.
+ */
+
+import type { Session } from './types.js';
+import type { PlatformClient, PlatformFile } from '../platform/index.js';
+import type { ClaudeCliOptions, ClaudeEvent, ContentBlock } from '../claude/cli.js';
+import { ClaudeCli } from '../claude/cli.js';
+import type { PersistedSession, SessionStore } from '../persistence/session-store.js';
+import { getLogo } from '../logo.js';
+import { randomUUID } from 'crypto';
+import { readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
+
+// ---------------------------------------------------------------------------
+// Context types for dependency injection
+// ---------------------------------------------------------------------------
+
+export interface LifecycleContext {
+  workingDir: string;
+  skipPermissions: boolean;
+  chromeEnabled: boolean;
+  debug: boolean;
+  maxSessions: number;
+  sessions: Map<string, Session>;
+  postIndex: Map<string, string>;
+  platforms: Map<string, PlatformClient>;
+  sessionStore: SessionStore;
+  isShuttingDown: boolean;
+  getSessionId: (platformId: string, threadId: string) => string;
+  findSessionByThreadId: (threadId: string) => Session | undefined;
+  handleEvent: (sessionId: string, event: ClaudeEvent) => void;
+  handleExit: (sessionId: string, code: number) => Promise<void>;
+  registerPost: (postId: string, threadId: string) => void;
+  startTyping: (session: Session) => void;
+  stopTyping: (session: Session) => void;
+  flush: (session: Session) => Promise<void>;
+  persistSession: (session: Session) => void;
+  unpersistSession: (sessionId: string) => void;
+  updateSessionHeader: (session: Session) => Promise<void>;
+  shouldPromptForWorktree: (session: Session) => Promise<string | null>;
+  postWorktreePrompt: (session: Session, reason: string) => Promise<void>;
+  buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
+}
+
+/**
+ * Helper to find a persisted session by raw threadId.
+ * Persisted sessions are keyed by composite sessionId, so we need to iterate.
+ */
+function findPersistedByThreadId(
+  persisted: Map<string, PersistedSession>,
+  threadId: string
+): PersistedSession | undefined {
+  for (const session of persisted.values()) {
+    if (session.threadId === threadId) {
+      return session;
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Session creation
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new session for a thread.
+ */
+export async function startSession(
+  options: { prompt: string; files?: PlatformFile[] },
+  username: string,
+  replyToPostId: string | undefined,
+  platformId: string,
+  ctx: LifecycleContext
+): Promise<void> {
+  const threadId = replyToPostId || '';
+
+  // Check if session already exists for this thread
+  const existingSessionId = ctx.getSessionId(platformId, threadId);
+  const existingSession = ctx.sessions.get(existingSessionId);
+  if (existingSession && existingSession.claude.isRunning()) {
+    // Send as follow-up instead
+    await sendFollowUp(existingSession, options.prompt, options.files, ctx);
+    return;
+  }
+
+  const platform = ctx.platforms.get(platformId);
+  if (!platform) {
+    throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
+  }
+
+  // Check max sessions limit
+  if (ctx.sessions.size >= ctx.maxSessions) {
+    await platform.createPost(
+      `⚠️ **Too busy** - ${ctx.sessions.size} sessions active. Please try again later.`,
+      replyToPostId
+    );
+    return;
+  }
+
+  // Post initial session message
+  let post;
+  try {
+    post = await platform.createPost(
+      `${getLogo(pkg.version)}\n\n*Starting session...*`,
+      replyToPostId
+    );
+  } catch (err) {
+    console.error(`  ❌ Failed to create session post:`, err);
+    return;
+  }
+  const actualThreadId = replyToPostId || post.id;
+  const sessionId = ctx.getSessionId(platformId, actualThreadId);
+
+  // Generate a unique session ID for this Claude session
+  const claudeSessionId = randomUUID();
+
+  // Create Claude CLI with options
+  const platformMcpConfig = platform.getMcpConfig();
+  const cliOptions: ClaudeCliOptions = {
+    workingDir: ctx.workingDir,
+    threadId: actualThreadId,
+    skipPermissions: ctx.skipPermissions,
+    sessionId: claudeSessionId,
+    resume: false,
+    chrome: ctx.chromeEnabled,
+    platformConfig: platformMcpConfig,
+  };
+  const claude = new ClaudeCli(cliOptions);
+
+  // Create the session object
+  const session: Session = {
+    platformId,
+    threadId: actualThreadId,
+    sessionId,
+    platform,
+    claudeSessionId,
+    startedBy: username,
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    sessionNumber: ctx.sessions.size + 1,
+    workingDir: ctx.workingDir,
+    claude,
+    currentPostId: null,
+    pendingContent: '',
+    pendingApproval: null,
+    pendingQuestionSet: null,
+    pendingMessageApproval: null,
+    planApproved: false,
+    sessionAllowedUsers: new Set([username]),
+    forceInteractivePermissions: false,
+    sessionStartPostId: post.id,
+    tasksPostId: null,
+    activeSubagents: new Map(),
+    updateTimer: null,
+    typingTimer: null,
+    timeoutWarningPosted: false,
+    isRestarting: false,
+    isResumed: false,
+    wasInterrupted: false,
+    inProgressTaskStart: null,
+    activeToolStarts: new Map(),
+  };
+
+  // Register session
+  ctx.sessions.set(sessionId, session);
+  ctx.registerPost(post.id, actualThreadId);
+  const shortId = actualThreadId.substring(0, 8);
+  console.log(`  ▶ Session #${ctx.sessions.size} started (${shortId}…) by @${username}`);
+
+  // Update the header with full session info
+  await ctx.updateSessionHeader(session);
+
+  // Start typing indicator
+  ctx.startTyping(session);
+
+  // Bind event handlers (use sessionId which is the composite key)
+  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
+
+  try {
+    claude.start();
+  } catch (err) {
+    console.error('  ❌ Failed to start Claude:', err);
+    ctx.stopTyping(session);
+    await session.platform.createPost(`❌ ${err}`, actualThreadId);
+    ctx.sessions.delete(session.sessionId);
+    return;
+  }
+
+  // Check if we should prompt for worktree
+  const shouldPrompt = await ctx.shouldPromptForWorktree(session);
+  if (shouldPrompt) {
+    session.queuedPrompt = options.prompt;
+    session.pendingWorktreePrompt = true;
+    await ctx.postWorktreePrompt(session, shouldPrompt);
+    ctx.persistSession(session);
+    return;
+  }
+
+  // Send the message to Claude
+  const content = await ctx.buildMessageContent(options.prompt, session.platform, options.files);
+  claude.sendMessage(content);
+
+  // Persist session for resume after restart
+  ctx.persistSession(session);
+}
+
+/**
+ * Resume a session from persisted state.
+ */
+export async function resumeSession(
+  state: PersistedSession,
+  ctx: LifecycleContext
+): Promise<void> {
+  const shortId = state.threadId.substring(0, 8);
+
+  // Get platform for this session
+  const platform = ctx.platforms.get(state.platformId);
+  if (!platform) {
+    console.log(`  ⚠️ Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
+    return;
+  }
+
+  // Verify thread still exists
+  const post = await platform.getPost(state.threadId);
+  if (!post) {
+    console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
+    ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+    return;
+  }
+
+  // Check max sessions limit
+  if (ctx.sessions.size >= ctx.maxSessions) {
+    console.log(`  ⚠️ Max sessions reached, skipping resume for ${shortId}...`);
+    return;
+  }
+
+  const platformId = state.platformId;
+  const sessionId = ctx.getSessionId(platformId, state.threadId);
+
+  // Create Claude CLI with resume flag
+  const skipPerms = ctx.skipPermissions && !state.forceInteractivePermissions;
+  const platformMcpConfig = platform.getMcpConfig();
+  const cliOptions: ClaudeCliOptions = {
+    workingDir: state.workingDir,
+    threadId: state.threadId,
+    skipPermissions: skipPerms,
+    sessionId: state.claudeSessionId,
+    resume: true,
+    chrome: ctx.chromeEnabled,
+    platformConfig: platformMcpConfig,
+  };
+  const claude = new ClaudeCli(cliOptions);
+
+  // Rebuild Session object from persisted state
+  const session: Session = {
+    platformId,
+    threadId: state.threadId,
+    sessionId,
+    platform,
+    claudeSessionId: state.claudeSessionId,
+    startedBy: state.startedBy,
+    startedAt: new Date(state.startedAt),
+    lastActivityAt: new Date(),
+    sessionNumber: state.sessionNumber,
+    workingDir: state.workingDir,
+    claude,
+    currentPostId: null,
+    pendingContent: '',
+    pendingApproval: null,
+    pendingQuestionSet: null,
+    pendingMessageApproval: null,
+    planApproved: state.planApproved,
+    sessionAllowedUsers: new Set(state.sessionAllowedUsers),
+    forceInteractivePermissions: state.forceInteractivePermissions,
+    sessionStartPostId: state.sessionStartPostId,
+    tasksPostId: state.tasksPostId,
+    activeSubagents: new Map(),
+    updateTimer: null,
+    typingTimer: null,
+    timeoutWarningPosted: false,
+    isRestarting: false,
+    isResumed: true,
+    wasInterrupted: false,
+    inProgressTaskStart: null,
+    activeToolStarts: new Map(),
+    worktreeInfo: state.worktreeInfo,
+    pendingWorktreePrompt: state.pendingWorktreePrompt,
+    worktreePromptDisabled: state.worktreePromptDisabled,
+    queuedPrompt: state.queuedPrompt,
+  };
+
+  // Register session
+  ctx.sessions.set(sessionId, session);
+  if (state.sessionStartPostId) {
+    ctx.registerPost(state.sessionStartPostId, state.threadId);
+  }
+
+  // Bind event handlers (use sessionId which is the composite key)
+  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
+
+  try {
+    claude.start();
+    console.log(`  🔄 Resumed session ${shortId}... (@${state.startedBy})`);
+
+    // Post resume message
+    await session.platform.createPost(
+      `🔄 **Session resumed** after bot restart (v${pkg.version})\n*Reconnected to Claude session. You can continue where you left off.*`,
+      state.threadId
+    );
+
+    // Update session header
+    await ctx.updateSessionHeader(session);
+
+    // Update persistence with new activity time
+    ctx.persistSession(session);
+  } catch (err) {
+    console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
+    ctx.sessions.delete(sessionId);
+    ctx.sessionStore.remove(sessionId);
+
+    // Try to notify user
+    try {
+      await session.platform.createPost(
+        `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
+        state.threadId
+      );
+    } catch {
+      // Ignore if we can't post
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session messaging
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a follow-up message to an existing session.
+ */
+export async function sendFollowUp(
+  session: Session,
+  message: string,
+  files: PlatformFile[] | undefined,
+  ctx: LifecycleContext
+): Promise<void> {
+  if (!session.claude.isRunning()) return;
+  const content = await ctx.buildMessageContent(message, session.platform, files);
+  session.claude.sendMessage(content);
+  session.lastActivityAt = new Date();
+  ctx.startTyping(session);
+}
+
+/**
+ * Resume a paused session and send a message to it.
+ */
+export async function resumePausedSession(
+  threadId: string,
+  message: string,
+  files: PlatformFile[] | undefined,
+  ctx: LifecycleContext
+): Promise<void> {
+  // Find persisted session by raw threadId
+  const persisted = ctx.sessionStore.load();
+  const state = findPersistedByThreadId(persisted, threadId);
+  if (!state) {
+    console.log(`  [resume] No persisted session found for ${threadId.substring(0, 8)}...`);
+    return;
+  }
+
+  const shortId = threadId.substring(0, 8);
+  console.log(`  🔄 Resuming paused session ${shortId}... for new message`);
+
+  // Resume the session
+  await resumeSession(state, ctx);
+
+  // Wait a moment for the session to be ready, then send the message
+  const session = ctx.findSessionByThreadId(threadId);
+  if (session && session.claude.isRunning()) {
+    const content = await ctx.buildMessageContent(message, session.platform, files);
+    session.claude.sendMessage(content);
+    session.lastActivityAt = new Date();
+    ctx.startTyping(session);
+  } else {
+    console.log(`  ⚠️ Failed to resume session ${shortId}..., could not send message`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Session termination
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle Claude CLI exit event.
+ */
+export async function handleExit(
+  sessionId: string,
+  code: number,
+  ctx: LifecycleContext
+): Promise<void> {
+  const session = ctx.sessions.get(sessionId);
+  const shortId = sessionId.substring(0, 8);
+
+  console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
+
+  if (!session) {
+    console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
+    return;
+  }
+
+  // If we're intentionally restarting (e.g., !cd), don't clean up
+  if (session.isRestarting) {
+    console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
+    session.isRestarting = false;
+    return;
+  }
+
+  // If bot is shutting down, preserve persistence
+  if (ctx.isShuttingDown) {
+    console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
+    ctx.stopTyping(session);
+    if (session.updateTimer) {
+      clearTimeout(session.updateTimer);
+      session.updateTimer = null;
+    }
+    ctx.sessions.delete(session.sessionId);
+    return;
+  }
+
+  // If session was interrupted, preserve for resume
+  if (session.wasInterrupted) {
+    console.log(`  [exit] Session ${shortId}... exited after interrupt, preserving for resume`);
+    ctx.stopTyping(session);
+    if (session.updateTimer) {
+      clearTimeout(session.updateTimer);
+      session.updateTimer = null;
+    }
+    ctx.persistSession(session);
+    ctx.sessions.delete(session.sessionId);
+    // Clean up post index
+    for (const [postId, tid] of ctx.postIndex.entries()) {
+      if (tid === session.threadId) {
+        ctx.postIndex.delete(postId);
+      }
+    }
+    // Notify user
+    try {
+      await session.platform.createPost(
+        `ℹ️ Session paused. Send a new message to continue.`,
+        session.threadId
+      );
+    } catch {
+      // Ignore
+    }
+    console.log(`  ⏸️ Session paused (${shortId}…) — ${ctx.sessions.size} active`);
+    return;
+  }
+
+  // For resumed sessions that exit with error, preserve for retry
+  if (session.isResumed && code !== 0) {
+    console.log(`  [exit] Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
+    ctx.stopTyping(session);
+    if (session.updateTimer) {
+      clearTimeout(session.updateTimer);
+      session.updateTimer = null;
+    }
+    ctx.sessions.delete(session.sessionId);
+    try {
+      await session.platform.createPost(
+        `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
+        session.threadId
+      );
+    } catch {
+      // Ignore
+    }
+    return;
+  }
+
+  // Normal exit cleanup
+  console.log(`  [exit] Session ${shortId}... normal exit, cleaning up`);
+
+  ctx.stopTyping(session);
+  if (session.updateTimer) {
+    clearTimeout(session.updateTimer);
+    session.updateTimer = null;
+  }
+  await ctx.flush(session);
+
+  if (code !== 0 && code !== null) {
+    await session.platform.createPost(`**[Exited: ${code}]**`, session.threadId);
+  }
+
+  // Clean up session from maps
+  ctx.sessions.delete(session.sessionId);
+  for (const [postId, tid] of ctx.postIndex.entries()) {
+    if (tid === session.threadId) {
+      ctx.postIndex.delete(postId);
+    }
+  }
+
+  // Only unpersist for normal exits
+  if (code === 0 || code === null) {
+    ctx.unpersistSession(session.sessionId);
+  } else {
+    console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
+  }
+
+  console.log(`  ■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);
+}
+
+/**
+ * Kill a specific session.
+ */
+export function killSession(
+  session: Session,
+  unpersist: boolean,
+  ctx: LifecycleContext
+): void {
+  const shortId = session.threadId.substring(0, 8);
+
+  // Set restarting flag to prevent handleExit from also unpersisting
+  if (!unpersist) {
+    session.isRestarting = true;
+  }
+
+  ctx.stopTyping(session);
+  session.claude.kill();
+
+  // Clean up session from maps
+  ctx.sessions.delete(session.sessionId);
+  for (const [postId, tid] of ctx.postIndex.entries()) {
+    if (tid === session.threadId) {
+      ctx.postIndex.delete(postId);
+    }
+  }
+
+  // Explicitly unpersist if requested
+  if (unpersist) {
+    ctx.unpersistSession(session.threadId);
+  }
+
+  console.log(`  ✖ Session killed (${shortId}…) — ${ctx.sessions.size} active`);
+}
+
+/**
+ * Kill all active sessions.
+ */
+export function killAllSessions(ctx: LifecycleContext): void {
+  for (const session of ctx.sessions.values()) {
+    ctx.stopTyping(session);
+    session.claude.kill();
+  }
+  ctx.sessions.clear();
+  ctx.postIndex.clear();
+}
+
+// ---------------------------------------------------------------------------
+// Cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Clean up idle sessions that have timed out.
+ */
+export function cleanupIdleSessions(
+  timeoutMs: number,
+  warningMs: number,
+  ctx: LifecycleContext
+): void {
+  const now = Date.now();
+
+  for (const [_sessionId, session] of ctx.sessions) {
+    const idleMs = now - session.lastActivityAt.getTime();
+    const shortId = session.threadId.substring(0, 8);
+
+    // Check for timeout
+    if (idleMs > timeoutMs) {
+      console.log(`  ⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
+      session.platform.createPost(
+        `⏰ **Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity`,
+        session.threadId
+      ).catch(() => {});
+
+      // Kill without unpersisting to allow resume
+      killSession(session, false, ctx);
+      continue;
+    }
+
+    // Check for warning threshold
+    if (idleMs > warningMs && !session.timeoutWarningPosted) {
+      const remainingMins = Math.round((timeoutMs - idleMs) / 60000);
+      session.platform.createPost(
+        `⏰ **Session idle** - will timeout in ~${remainingMins} minutes without activity`,
+        session.threadId
+      ).catch(() => {});
+      session.timeoutWarningPosted = true;
+      console.log(`  ⏰ Session (${shortId}…) idle warning posted`);
+    }
+  }
+}

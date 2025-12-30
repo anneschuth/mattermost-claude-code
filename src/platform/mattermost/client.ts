@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import type { Config } from '../config.js';
-import { wsLogger } from '../utils/logger.js';
+import type { MattermostPlatformConfig } from '../../config/migration.js';
+import { wsLogger } from '../../utils/logger.js';
 import type {
   MattermostWebSocketEvent,
   MattermostPost,
@@ -11,29 +11,41 @@ import type {
   ReactionAddedEventData,
   CreatePostRequest,
   UpdatePostRequest,
+  MattermostFile,
 } from './types.js';
-
-export interface MattermostClientEvents {
-  connected: () => void;
-  disconnected: () => void;
-  error: (error: Error) => void;
-  message: (post: MattermostPost, user: MattermostUser | null) => void;
-  reaction: (reaction: MattermostReaction, user: MattermostUser | null) => void;
-}
+import type {
+  PlatformClient,
+  PlatformUser,
+  PlatformPost,
+  PlatformReaction,
+  PlatformFile,
+} from '../index.js';
+import type { PlatformFormatter } from '../formatter.js';
+import { MattermostFormatter } from './formatter.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export class MattermostClient extends EventEmitter {
+export class MattermostClient extends EventEmitter implements PlatformClient {
+  // Platform identity (required by PlatformClient)
+  readonly platformId: string;
+  readonly platformType = 'mattermost' as const;
+  readonly displayName: string;
+
   private ws: WebSocket | null = null;
-  private config: Config;
+  private url: string;
+  private token: string;
+  private channelId: string;
+  private botName: string;
+  private allowedUsers: string[];
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
   private reconnectDelay = 1000;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
+  private readonly formatter = new MattermostFormatter();
 
   // Heartbeat to detect dead connections
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -41,9 +53,68 @@ export class MattermostClient extends EventEmitter {
   private readonly PING_INTERVAL_MS = 30000; // Send ping every 30s
   private readonly PING_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
 
-  constructor(config: Config) {
+  constructor(platformConfig: MattermostPlatformConfig) {
     super();
-    this.config = config;
+    this.platformId = platformConfig.id;
+    this.displayName = platformConfig.displayName;
+    this.url = platformConfig.url;
+    this.token = platformConfig.token;
+    this.channelId = platformConfig.channelId;
+    this.botName = platformConfig.botName;
+    this.allowedUsers = platformConfig.allowedUsers;
+  }
+
+  // ============================================================================
+  // Type Normalization (Mattermost → Platform)
+  // ============================================================================
+
+  private normalizePlatformUser(mattermostUser: MattermostUser): PlatformUser {
+    return {
+      id: mattermostUser.id,
+      username: mattermostUser.username,
+      email: mattermostUser.email,
+    };
+  }
+
+  private normalizePlatformPost(mattermostPost: MattermostPost): PlatformPost {
+    // Normalize metadata.files if present
+    const metadata: { files?: PlatformFile[]; [key: string]: unknown } | undefined =
+      mattermostPost.metadata
+        ? {
+            ...mattermostPost.metadata,
+            files: mattermostPost.metadata.files?.map((f: MattermostFile) => this.normalizePlatformFile(f)),
+          }
+        : undefined;
+
+    return {
+      id: mattermostPost.id,
+      platformId: this.platformId,
+      channelId: mattermostPost.channel_id,
+      userId: mattermostPost.user_id,
+      message: mattermostPost.message,
+      rootId: mattermostPost.root_id,
+      createAt: mattermostPost.create_at,
+      metadata,
+    };
+  }
+
+  private normalizePlatformReaction(mattermostReaction: MattermostReaction): PlatformReaction {
+    return {
+      userId: mattermostReaction.user_id,
+      postId: mattermostReaction.post_id,
+      emojiName: mattermostReaction.emoji_name,
+      createAt: mattermostReaction.create_at,
+    };
+  }
+
+  private normalizePlatformFile(mattermostFile: MattermostFile): PlatformFile {
+    return {
+      id: mattermostFile.id,
+      name: mattermostFile.name,
+      size: mattermostFile.size,
+      mimeType: mattermostFile.mime_type,
+      extension: mattermostFile.extension,
+    };
   }
 
   // REST API helper
@@ -52,11 +123,11 @@ export class MattermostClient extends EventEmitter {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.config.mattermost.url}/api/v4${path}`;
+    const url = `${this.url}/api/v4${path}`;
     const response = await fetch(url, {
       method,
       headers: {
-        Authorization: `Bearer ${this.config.mattermost.token}`,
+        Authorization: `Bearer ${this.token}`,
         'Content-Type': 'application/json',
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -71,21 +142,22 @@ export class MattermostClient extends EventEmitter {
   }
 
   // Get current bot user info
-  async getBotUser(): Promise<MattermostUser> {
+  async getBotUser(): Promise<PlatformUser> {
     const user = await this.api<MattermostUser>('GET', '/users/me');
     this.botUserId = user.id;
-    return user;
+    return this.normalizePlatformUser(user);
   }
 
   // Get user by ID (cached)
-  async getUser(userId: string): Promise<MattermostUser | null> {
-    if (this.userCache.has(userId)) {
-      return this.userCache.get(userId)!;
+  async getUser(userId: string): Promise<PlatformUser | null> {
+    const cached = this.userCache.get(userId);
+    if (cached) {
+      return this.normalizePlatformUser(cached);
     }
     try {
       const user = await this.api<MattermostUser>('GET', `/users/${userId}`);
       this.userCache.set(userId, user);
-      return user;
+      return this.normalizePlatformUser(user);
     } catch {
       return null;
     }
@@ -95,22 +167,24 @@ export class MattermostClient extends EventEmitter {
   async createPost(
     message: string,
     threadId?: string
-  ): Promise<MattermostPost> {
+  ): Promise<PlatformPost> {
     const request: CreatePostRequest = {
-      channel_id: this.config.mattermost.channelId,
+      channel_id: this.channelId,
       message,
       root_id: threadId,
     };
-    return this.api<MattermostPost>('POST', '/posts', request);
+    const post = await this.api<MattermostPost>('POST', '/posts', request);
+    return this.normalizePlatformPost(post);
   }
 
   // Update a message (for streaming updates)
-  async updatePost(postId: string, message: string): Promise<MattermostPost> {
+  async updatePost(postId: string, message: string): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
       message,
     };
-    return this.api<MattermostPost>('PUT', `/posts/${postId}`, request);
+    const post = await this.api<MattermostPost>('PUT', `/posts/${postId}`, request);
+    return this.normalizePlatformPost(post);
   }
 
   // Add a reaction to a post
@@ -137,7 +211,7 @@ export class MattermostClient extends EventEmitter {
     message: string,
     reactions: string[],
     threadId?: string
-  ): Promise<MattermostPost> {
+  ): Promise<PlatformPost> {
     const post = await this.createPost(message, threadId);
 
     // Add each reaction option, continuing even if some fail
@@ -154,10 +228,10 @@ export class MattermostClient extends EventEmitter {
 
   // Download a file attachment
   async downloadFile(fileId: string): Promise<Buffer> {
-    const url = `${this.config.mattermost.url}/api/v4/files/${fileId}`;
+    const url = `${this.url}/api/v4/files/${fileId}`;
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${this.config.mattermost.token}`,
+        Authorization: `Bearer ${this.token}`,
       },
     });
 
@@ -170,14 +244,16 @@ export class MattermostClient extends EventEmitter {
   }
 
   // Get file info (metadata)
-  async getFileInfo(fileId: string): Promise<import('./types.js').MattermostFile> {
-    return this.api<import('./types.js').MattermostFile>('GET', `/files/${fileId}/info`);
+  async getFileInfo(fileId: string): Promise<PlatformFile> {
+    const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
+    return this.normalizePlatformFile(file);
   }
 
   // Get a post by ID (used to verify thread still exists on resume)
-  async getPost(postId: string): Promise<MattermostPost | null> {
+  async getPost(postId: string): Promise<PlatformPost | null> {
     try {
-      return await this.api<MattermostPost>('GET', `/posts/${postId}`);
+      const post = await this.api<MattermostPost>('GET', `/posts/${postId}`);
+      return this.normalizePlatformPost(post);
     } catch {
       return null; // Post doesn't exist or was deleted
     }
@@ -189,7 +265,7 @@ export class MattermostClient extends EventEmitter {
     await this.getBotUser();
     wsLogger.debug(`Bot user ID: ${this.botUserId}`);
 
-    const wsUrl = this.config.mattermost.url
+    const wsUrl = this.url
       .replace(/^http/, 'ws')
       .concat('/api/v4/websocket');
 
@@ -199,13 +275,15 @@ export class MattermostClient extends EventEmitter {
       this.ws.on('open', () => {
         wsLogger.debug('WebSocket connected');
         // Authenticate
-        this.ws!.send(
-          JSON.stringify({
-            seq: 1,
-            action: 'authentication_challenge',
-            data: { token: this.config.mattermost.token },
-          })
-        );
+        if (this.ws) {
+          this.ws.send(
+            JSON.stringify({
+              seq: 1,
+              action: 'authentication_challenge',
+              data: { token: this.token },
+            })
+          );
+        }
       });
 
       this.ws.on('message', (data) => {
@@ -259,11 +337,11 @@ export class MattermostClient extends EventEmitter {
         if (post.user_id === this.botUserId) return;
 
         // Only handle messages in our channel
-        if (post.channel_id !== this.config.mattermost.channelId) return;
+        if (post.channel_id !== this.channelId) return;
 
-        // Get user info and emit
+        // Get user info and emit (with normalized types)
         this.getUser(post.user_id).then((user) => {
-          this.emit('message', post, user);
+          this.emit('message', this.normalizePlatformPost(post), user);
         });
       } catch (err) {
         wsLogger.debug(`Failed to parse post: ${err}`);
@@ -282,9 +360,9 @@ export class MattermostClient extends EventEmitter {
         // Ignore reactions from ourselves
         if (reaction.user_id === this.botUserId) return;
 
-        // Get user info and emit
+        // Get user info and emit (with normalized types)
         this.getUser(reaction.user_id).then((user) => {
-          this.emit('reaction', reaction, user);
+          this.emit('reaction', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
         wsLogger.debug(`Failed to parse reaction: ${err}`);
@@ -343,16 +421,16 @@ export class MattermostClient extends EventEmitter {
 
   // Check if user is allowed to use the bot
   isUserAllowed(username: string): boolean {
-    if (this.config.allowedUsers.length === 0) {
+    if (this.allowedUsers.length === 0) {
       // If no allowlist configured, allow all
       return true;
     }
-    return this.config.allowedUsers.includes(username);
+    return this.allowedUsers.includes(username);
   }
 
   // Check if message mentions the bot
   isBotMentioned(message: string): boolean {
-    const botName = escapeRegExp(this.config.mattermost.botName);
+    const botName = escapeRegExp(this.botName);
     // Match @botname at start or with space before
     const mentionPattern = new RegExp(`(^|\\s)@${botName}\\b`, 'i');
     return mentionPattern.test(message);
@@ -360,7 +438,7 @@ export class MattermostClient extends EventEmitter {
 
   // Extract prompt from message (remove bot mention)
   extractPrompt(message: string): string {
-    const botName = escapeRegExp(this.config.mattermost.botName);
+    const botName = escapeRegExp(this.botName);
     return message
       .replace(new RegExp(`(^|\\s)@${botName}\\b`, 'gi'), ' ')
       .trim();
@@ -368,7 +446,23 @@ export class MattermostClient extends EventEmitter {
 
   // Get the bot name
   getBotName(): string {
-    return this.config.mattermost.botName;
+    return this.botName;
+  }
+
+  // Get MCP config for permission server
+  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] } {
+    return {
+      type: 'mattermost',
+      url: this.url,
+      token: this.token,
+      channelId: this.channelId,
+      allowedUsers: this.allowedUsers,
+    };
+  }
+
+  // Get platform-specific markdown formatter
+  getFormatter(): PlatformFormatter {
+    return this.formatter;
   }
 
   // Send typing indicator via WebSocket
@@ -379,7 +473,7 @@ export class MattermostClient extends EventEmitter {
       action: 'user_typing',
       seq: Date.now(),
       data: {
-        channel_id: this.config.mattermost.channelId,
+        channel_id: this.channelId,
         parent_id: parentId || '',
       },
     }));

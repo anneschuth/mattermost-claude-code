@@ -1,0 +1,130 @@
+/**
+ * Session management types and interfaces
+ */
+
+import type { ClaudeCli } from '../claude/cli.js';
+import type { PlatformClient } from '../platform/index.js';
+import type { WorktreeInfo } from '../persistence/session-store.js';
+
+// =============================================================================
+// Interactive State Types
+// =============================================================================
+
+export interface QuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface PendingQuestionSet {
+  toolUseId: string;
+  currentIndex: number;
+  currentPostId: string | null;
+  questions: Array<{
+    header: string;
+    question: string;
+    options: QuestionOption[];
+    answer: string | null;
+  }>;
+}
+
+export interface PendingApproval {
+  postId: string;
+  type: 'plan' | 'action';
+  toolUseId: string;
+}
+
+/**
+ * Pending message from unauthorized user awaiting approval
+ */
+export interface PendingMessageApproval {
+  postId: string;
+  originalMessage: string;
+  fromUser: string;
+}
+
+// =============================================================================
+// Session Type
+// =============================================================================
+
+/**
+ * Represents a single Claude Code session tied to a platform thread.
+ * Each session has its own Claude CLI process and state.
+ */
+export interface Session {
+  // Identity
+  platformId: string;       // Which platform instance (e.g., 'mattermost-main')
+  threadId: string;         // Thread ID within that platform
+  sessionId: string;        // Composite key "platformId:threadId"
+  claudeSessionId: string;  // UUID for --session-id / --resume
+  startedBy: string;
+  startedAt: Date;
+  lastActivityAt: Date;
+  sessionNumber: number;  // Session # when created
+
+  // Platform reference
+  platform: PlatformClient;  // Reference to platform client
+
+  // Working directory (can be changed per-session)
+  workingDir: string;
+
+  // Claude process
+  claude: ClaudeCli;
+
+  // Post state for streaming updates
+  currentPostId: string | null;
+  pendingContent: string;
+
+  // Interactive state
+  pendingApproval: PendingApproval | null;
+  pendingQuestionSet: PendingQuestionSet | null;
+  pendingMessageApproval: PendingMessageApproval | null;
+  planApproved: boolean;
+
+  // Collaboration - per-session allowlist
+  sessionAllowedUsers: Set<string>;
+
+  // Permission override - can only downgrade (skip → interactive), not upgrade
+  forceInteractivePermissions: boolean;
+
+  // Display state
+  sessionStartPostId: string | null;  // The header post we update with participants
+  tasksPostId: string | null;
+  activeSubagents: Map<string, string>;  // toolUseId -> postId
+
+  // Timers (per-session)
+  updateTimer: ReturnType<typeof setTimeout> | null;
+  typingTimer: ReturnType<typeof setInterval> | null;
+
+  // Timeout warning state
+  timeoutWarningPosted: boolean;
+
+  // Flag to suppress exit message during intentional restart (e.g., !cd)
+  isRestarting: boolean;
+
+  // Flag to track if this session was resumed after bot restart
+  isResumed: boolean;
+
+  // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
+  wasInterrupted: boolean;
+
+  // Task timing - when the current in_progress task started
+  inProgressTaskStart: number | null;
+
+  // Tool timing - track when tools started for elapsed time display
+  activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
+
+  // Worktree support
+  worktreeInfo?: WorktreeInfo;              // Active worktree info
+  pendingWorktreePrompt?: boolean;          // Waiting for branch name response
+  worktreePromptDisabled?: boolean;         // User opted out with !worktree off
+  queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
+}
+
+// =============================================================================
+// Configuration Constants
+// =============================================================================
+
+export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
+export const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10); // 30 min
+export const SESSION_WARNING_MS = 5 * 60 * 1000; // Warn 5 minutes before timeout

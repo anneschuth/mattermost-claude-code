@@ -15,7 +15,8 @@ export interface WorktreeInfo {
  * Persisted session state for resuming after bot restart
  */
 export interface PersistedSession {
-  threadId: string;              // Mattermost thread ID
+  platformId: string;            // Which platform instance (e.g., 'default', 'mattermost-main')
+  threadId: string;              // Thread ID within that platform
   claudeSessionId: string;       // UUID for --session-id / --resume
   startedBy: string;             // Username who started the session
   startedAt: string;             // ISO date
@@ -34,12 +35,19 @@ export interface PersistedSession {
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
 }
 
+/**
+ * v1 session format (before platformId was added)
+ */
+type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
+  platformId?: string;
+}
+
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
 }
 
-const STORE_VERSION = 1;
+const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
 const CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
 const SESSIONS_FILE = join(CONFIG_DIR, 'sessions.json');
 
@@ -59,6 +67,7 @@ export class SessionStore {
 
   /**
    * Load all persisted sessions
+   * Returns Map with composite sessionId ("platformId:threadId") as key
    */
   load(): Map<string, PersistedSession> {
     const sessions = new Map<string, PersistedSession>();
@@ -71,14 +80,32 @@ export class SessionStore {
     try {
       const data = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as SessionStoreData;
 
-      // Version check for future migrations
-      if (data.version !== STORE_VERSION) {
-        console.warn(`  [persist] Sessions file version mismatch (${data.version} vs ${STORE_VERSION}), starting fresh`);
+      // Migration: v1 → v2 (add platformId and convert keys to composite format)
+      if (data.version === 1) {
+        console.log('  [persist] Migrating sessions from v1 to v2 (adding platformId)');
+        const newSessions: Record<string, PersistedSession> = {};
+        for (const [_oldKey, session] of Object.entries(data.sessions)) {
+          const v1Session = session as PersistedSessionV1;
+          if (!v1Session.platformId) {
+            v1Session.platformId = 'default';
+          }
+          // Convert key from threadId to platformId:threadId
+          const newKey = `${v1Session.platformId}:${v1Session.threadId}`;
+          newSessions[newKey] = v1Session as PersistedSession;
+        }
+        data.sessions = newSessions;
+        data.version = 2;
+        // Save migrated data
+        this.writeAtomic(data);
+      } else if (data.version !== STORE_VERSION) {
+        console.warn(`  [persist] Sessions file version ${data.version} not supported, starting fresh`);
         return sessions;
       }
 
-      for (const [threadId, session] of Object.entries(data.sessions)) {
-        sessions.set(threadId, session);
+      // Load sessions with composite sessionId as key
+      for (const session of Object.values(data.sessions)) {
+        const sessionId = `${session.platformId}:${session.threadId}`;
+        sessions.set(sessionId, session);
       }
 
       if (this.debug) {
@@ -93,29 +120,33 @@ export class SessionStore {
 
   /**
    * Save a session (creates or updates)
+   * @param sessionId - Composite key "platformId:threadId"
+   * @param session - Session data to persist
    */
-  save(threadId: string, session: PersistedSession): void {
+  save(sessionId: string, session: PersistedSession): void {
     const data = this.loadRaw();
-    data.sessions[threadId] = session;
+    // Use sessionId as key (already composite)
+    data.sessions[sessionId] = session;
     this.writeAtomic(data);
 
     if (this.debug) {
-      const shortId = threadId.substring(0, 8);
+      const shortId = sessionId.substring(0, 20);
       console.log(`  [persist] Saved session ${shortId}...`);
     }
   }
 
   /**
    * Remove a session
+   * @param sessionId - Composite key "platformId:threadId"
    */
-  remove(threadId: string): void {
+  remove(sessionId: string): void {
     const data = this.loadRaw();
-    if (data.sessions[threadId]) {
-      delete data.sessions[threadId];
+    if (data.sessions[sessionId]) {
+      delete data.sessions[sessionId];
       this.writeAtomic(data);
 
       if (this.debug) {
-        const shortId = threadId.substring(0, 8);
+        const shortId = sessionId.substring(0, 20);
         console.log(`  [persist] Removed session ${shortId}...`);
       }
     }
@@ -123,17 +154,18 @@ export class SessionStore {
 
   /**
    * Remove sessions older than maxAgeMs
+   * @returns Array of sessionIds that were removed
    */
   cleanStale(maxAgeMs: number): string[] {
     const data = this.loadRaw();
     const now = Date.now();
     const staleIds: string[] = [];
 
-    for (const [threadId, session] of Object.entries(data.sessions)) {
+    for (const [sessionId, session] of Object.entries(data.sessions)) {
       const lastActivity = new Date(session.lastActivityAt).getTime();
       if (now - lastActivity > maxAgeMs) {
-        staleIds.push(threadId);
-        delete data.sessions[threadId];
+        staleIds.push(sessionId);
+        delete data.sessions[sessionId];
       }
     }
 

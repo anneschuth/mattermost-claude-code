@@ -1,89 +1,216 @@
 import prompts from 'prompts';
-import { writeFileSync, mkdirSync, readFileSync, existsSync } from 'fs';
-import { homedir } from 'os';
-import { resolve, dirname } from 'path';
-import { parse } from 'dotenv';
+import { existsSync } from 'fs';
+import {
+  CONFIG_PATH,
+  saveConfig,
+  type NewConfig,
+  type PlatformInstanceConfig,
+  type MattermostPlatformConfig,
+  type SlackPlatformConfig,
+} from './config/migration.js';
+import YAML from 'yaml';
+import { readFileSync } from 'fs';
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 
-// Paths to search for .env files (in order of priority)
-const ENV_PATHS = [
-  resolve(process.cwd(), '.env'),
-  resolve(homedir(), '.config', 'claude-threads', '.env'),
-  resolve(homedir(), '.claude-threads.env'),
-];
-
-function loadExistingConfig(): { path: string | null; values: Record<string, string> } {
-  for (const envPath of ENV_PATHS) {
-    if (existsSync(envPath)) {
-      try {
-        const content = readFileSync(envPath, 'utf-8');
-        return { path: envPath, values: parse(content) };
-      } catch {
-        return { path: null, values: {} };
-      }
-    }
-  }
-  return { path: null, values: {} };
-}
+const onCancel = () => {
+  console.log('');
+  console.log(dim('  Setup cancelled.'));
+  process.exit(0);
+};
 
 export async function runOnboarding(reconfigure = false): Promise<void> {
-  const { path: existingPath, values: existing } = reconfigure ? loadExistingConfig() : { path: null, values: {} };
-  const hasExisting = Object.keys(existing).length > 0;
-
   console.log('');
-  if (reconfigure && hasExisting) {
-    console.log(bold('  Reconfiguring claude-threads'));
-    console.log(dim('  ─────────────────────────────────'));
-    console.log('');
-    console.log(dim('  Press Enter to keep existing values.'));
+  console.log(bold('  claude-threads setup'));
+  console.log(dim('  ─────────────────────────────────'));
+  console.log('');
+
+  // Load existing config if reconfiguring
+  let existingConfig: NewConfig | null = null;
+  if (reconfigure && existsSync(CONFIG_PATH)) {
+    try {
+      const content = readFileSync(CONFIG_PATH, 'utf-8');
+      existingConfig = YAML.parse(content) as NewConfig;
+      console.log(dim('  Reconfiguring existing setup.'));
+    } catch {
+      console.log(dim('  Could not load existing config, starting fresh.'));
+    }
   } else {
-    console.log(bold('  Welcome to claude-threads!'));
-    console.log(dim('  ─────────────────────────────────'));
-    console.log('');
-    console.log('  No configuration found. Let\'s set things up.');
+    console.log('  Welcome! Let\'s configure claude-threads.');
   }
   console.log('');
-  console.log(dim('  You\'ll need:'));
-  console.log(dim('  • A Mattermost bot account with a token'));
-  console.log(dim('  • A channel ID where the bot will listen'));
+
+  // Step 1: Global settings
+  const globalSettings = await prompts([
+    {
+      type: 'text',
+      name: 'workingDir',
+      message: 'Default working directory',
+      initial: existingConfig?.workingDir || process.cwd(),
+      hint: 'Where Claude Code runs by default',
+    },
+    {
+      type: 'confirm',
+      name: 'chrome',
+      message: 'Enable Chrome integration?',
+      initial: existingConfig?.chrome || false,
+      hint: 'Requires Claude in Chrome extension',
+    },
+    {
+      type: 'select',
+      name: 'worktreeMode',
+      message: 'Git worktree mode',
+      choices: [
+        { title: 'Prompt', value: 'prompt', description: 'Ask when starting sessions' },
+        { title: 'Off', value: 'off', description: 'Never use worktrees' },
+        { title: 'Require', value: 'require', description: 'Always require branch name' },
+      ],
+      initial: existingConfig?.worktreeMode === 'off' ? 1 :
+               existingConfig?.worktreeMode === 'require' ? 2 : 0,
+    },
+  ], { onCancel });
+
+  const config: NewConfig = {
+    version: 2,
+    ...globalSettings,
+    platforms: [],
+  };
+
+  // Step 2: Add platforms (loop)
+  console.log('');
+  console.log(dim('  Now let\'s add your platform connections.'));
   console.log('');
 
-  // Handle Ctrl+C gracefully
-  prompts.override({});
-  const onCancel = () => {
-    console.log('');
-    console.log(dim('  Setup cancelled.'));
-    process.exit(0);
-  };
+  let platformNumber = 1;
+  let addMore = true;
 
-  // Helper to get worktree mode index
-  const worktreeModeIndex = (mode: string | undefined): number => {
-    if (mode === 'off') return 1;
-    if (mode === 'require') return 2;
-    return 0; // default to 'prompt'
-  };
+  while (addMore) {
+    const isFirst = platformNumber === 1;
+    const existingPlatform = existingConfig?.platforms[platformNumber - 1];
+
+    // Ask what platform type
+    const { platformType } = await prompts({
+      type: 'select',
+      name: 'platformType',
+      message: isFirst ? 'First platform' : `Platform #${platformNumber}`,
+      choices: [
+        { title: 'Mattermost', value: 'mattermost' },
+        { title: 'Slack', value: 'slack' },
+        ...(isFirst ? [] : [{ title: '(Done - finish setup)', value: 'done' }]),
+      ],
+      initial: existingPlatform?.type === 'slack' ? 1 : 0,
+    }, { onCancel });
+
+    if (platformType === 'done') {
+      addMore = false;
+      break;
+    }
+
+    // Get platform ID and name
+    const { platformId, displayName } = await prompts([
+      {
+        type: 'text',
+        name: 'platformId',
+        message: 'Platform ID',
+        initial: existingPlatform?.id ||
+                 (config.platforms.length === 0 ? 'default' : `${platformType}-${platformNumber}`),
+        hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
+        validate: (v: string) => {
+          if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
+          if (config.platforms.some(p => p.id === v)) return 'ID already in use';
+          return true;
+        },
+      },
+      {
+        type: 'text',
+        name: 'displayName',
+        message: 'Display name',
+        initial: existingPlatform?.displayName ||
+                 (platformType === 'mattermost' ? 'Mattermost' : 'Slack'),
+        hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
+      },
+    ], { onCancel });
+
+    // Configure the platform
+    if (platformType === 'mattermost') {
+      const platform = await setupMattermostPlatform(platformId, displayName, existingPlatform);
+      config.platforms.push(platform);
+    } else {
+      const platform = await setupSlackPlatform(platformId, displayName, existingPlatform);
+      config.platforms.push(platform);
+    }
+
+    console.log(green(`  ✓ Added ${displayName}`));
+    console.log('');
+
+    // Ask to add more (after first one)
+    if (platformNumber === 1) {
+      const { addAnother } = await prompts({
+        type: 'confirm',
+        name: 'addAnother',
+        message: 'Add another platform?',
+        initial: (existingConfig?.platforms.length || 0) > 1,
+      }, { onCancel });
+
+      addMore = addAnother;
+    }
+
+    platformNumber++;
+  }
+
+  // Validate at least one platform
+  if (config.platforms.length === 0) {
+    console.log('');
+    console.log(dim('  ⚠️  No platforms configured. Setup cancelled.'));
+    process.exit(1);
+  }
+
+  // Save config
+  saveConfig(config);
+
+  console.log('');
+  console.log(green('  ✓ Configuration saved!'));
+  console.log(dim(`    ${CONFIG_PATH}`));
+  console.log('');
+  console.log(dim(`  Configured ${config.platforms.length} platform(s):`));
+  for (const platform of config.platforms) {
+    console.log(dim(`    • ${platform.displayName} (${platform.type})`));
+  }
+  console.log('');
+  console.log(dim('  Starting claude-threads...'));
+  console.log('');
+}
+
+async function setupMattermostPlatform(
+  id: string,
+  displayName: string,
+  existing?: PlatformInstanceConfig
+): Promise<MattermostPlatformConfig> {
+  console.log('');
+  console.log(dim('  Mattermost setup:'));
+  console.log('');
+
+  const existingMattermost = existing?.type === 'mattermost' ? existing as MattermostPlatformConfig : undefined;
 
   const response = await prompts([
     {
       type: 'text',
       name: 'url',
-      message: 'Mattermost URL',
-      initial: existing.MATTERMOST_URL || 'https://your-mattermost-server.com',
-      validate: (v: string) => v.startsWith('http') ? true : 'URL must start with http:// or https://',
+      message: 'Server URL',
+      initial: existingMattermost?.url || 'https://chat.example.com',
+      validate: (v: string) => v.startsWith('http') ? true : 'Must start with http(s)://',
     },
     {
       type: 'password',
       name: 'token',
       message: 'Bot token',
-      hint: existing.MATTERMOST_TOKEN
-        ? 'Enter to keep existing, or type new token'
-        : 'Create at: Integrations > Bot Accounts > Add Bot Account',
+      initial: existingMattermost?.token,
+      hint: existingMattermost?.token ? 'Enter to keep existing, or type new token' : 'Create at: Integrations > Bot Accounts',
       validate: (v: string) => {
-        // Allow empty if we have an existing token (user wants to keep it)
-        if (!v && existing.MATTERMOST_TOKEN) return true;
+        // Allow empty if we have existing token
+        if (!v && existingMattermost?.token) return true;
         return v.length > 0 ? true : 'Token is required';
       },
     },
@@ -91,110 +218,139 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       type: 'text',
       name: 'channelId',
       message: 'Channel ID',
-      initial: existing.MATTERMOST_CHANNEL_ID || '',
-      hint: 'Click channel name > View Info > copy ID from URL',
+      initial: existingMattermost?.channelId || '',
+      hint: 'Click channel > View Info > copy ID from URL',
       validate: (v: string) => v.length > 0 ? true : 'Channel ID is required',
     },
     {
       type: 'text',
       name: 'botName',
       message: 'Bot mention name',
-      initial: existing.MATTERMOST_BOT_NAME || 'claude-code',
+      initial: existingMattermost?.botName || 'claude-code',
       hint: 'Users will @mention this name',
     },
     {
       type: 'text',
       name: 'allowedUsers',
-      message: 'Allowed usernames',
-      initial: existing.ALLOWED_USERS || '',
-      hint: 'Comma-separated, or empty for all users',
+      message: 'Allowed usernames (optional)',
+      initial: existingMattermost?.allowedUsers?.join(',') || '',
+      hint: 'Comma-separated, or empty to allow everyone',
     },
     {
       type: 'confirm',
       name: 'skipPermissions',
-      message: 'Skip permission prompts?',
-      initial: existing.SKIP_PERMISSIONS !== undefined
-        ? existing.SKIP_PERMISSIONS === 'true'
-        : true,
-      hint: 'If no, you\'ll approve each action via emoji reactions',
-    },
-    {
-      type: 'confirm',
-      name: 'chrome',
-      message: 'Enable Chrome integration?',
-      initial: existing.CLAUDE_CHROME === 'true',
-      hint: 'Requires Claude in Chrome extension',
-    },
-    {
-      type: 'select',
-      name: 'worktreeMode',
-      message: 'Git worktree mode',
-      hint: 'Isolate changes in separate worktrees',
-      choices: [
-        { title: 'Prompt', value: 'prompt', description: 'Ask when starting new sessions' },
-        { title: 'Off', value: 'off', description: 'Never use worktrees' },
-        { title: 'Require', value: 'require', description: 'Always require a branch name' },
-      ],
-      initial: worktreeModeIndex(existing.WORKTREE_MODE),
+      message: 'Auto-approve all actions?',
+      initial: existingMattermost?.skipPermissions || false,
+      hint: 'If no, you\'ll approve via emoji reactions',
     },
   ], { onCancel });
 
-  // Check if user cancelled - token can be empty if keeping existing
-  const finalToken = response.token || existing.MATTERMOST_TOKEN;
-  if (!response.url || !finalToken || !response.channelId) {
+  // Use existing token if user left it empty
+  const finalToken = response.token || existingMattermost?.token;
+  if (!finalToken) {
     console.log('');
-    console.log(dim('  Setup incomplete. Run claude-threads again to retry.'));
+    console.log(dim('  ⚠️  Token is required. Setup cancelled.'));
     process.exit(1);
   }
 
-  // Build .env content
-  const envContent = `# claude-threads configuration
-# Generated by claude-threads onboarding
+  return {
+    id,
+    type: 'mattermost',
+    displayName,
+    url: response.url,
+    token: finalToken,
+    channelId: response.channelId,
+    botName: response.botName,
+    allowedUsers: response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [],
+    skipPermissions: response.skipPermissions,
+  };
+}
 
-# Mattermost server URL
-MATTERMOST_URL=${response.url}
+async function setupSlackPlatform(
+  id: string,
+  displayName: string,
+  existing?: PlatformInstanceConfig
+): Promise<SlackPlatformConfig> {
+  console.log('');
+  console.log(dim('  Slack setup (requires Socket Mode):'));
+  console.log(dim('  Create app at: api.slack.com/apps'));
+  console.log('');
 
-# Bot token (from Integrations > Bot Accounts)
-MATTERMOST_TOKEN=${finalToken}
+  const existingSlack = existing?.type === 'slack' ? existing as SlackPlatformConfig : undefined;
 
-# Channel ID where the bot listens
-MATTERMOST_CHANNEL_ID=${response.channelId}
+  const response = await prompts([
+    {
+      type: 'password',
+      name: 'botToken',
+      message: 'Bot User OAuth Token',
+      initial: existingSlack?.botToken,
+      hint: existingSlack?.botToken ? 'Enter to keep existing' : 'Starts with xoxb-',
+      validate: (v: string) => {
+        if (!v && existingSlack?.botToken) return true;
+        return v.startsWith('xoxb-') ? true : 'Must start with xoxb-';
+      },
+    },
+    {
+      type: 'password',
+      name: 'appToken',
+      message: 'App-Level Token',
+      initial: existingSlack?.appToken,
+      hint: existingSlack?.appToken ? 'Enter to keep existing' : 'Starts with xapp- (enable Socket Mode first)',
+      validate: (v: string) => {
+        if (!v && existingSlack?.appToken) return true;
+        return v.startsWith('xapp-') ? true : 'Must start with xapp-';
+      },
+    },
+    {
+      type: 'text',
+      name: 'channelId',
+      message: 'Channel ID',
+      initial: existingSlack?.channelId || '',
+      hint: 'Right-click channel > View details > copy ID',
+      validate: (v: string) => v.length > 0 ? true : 'Channel ID is required',
+    },
+    {
+      type: 'text',
+      name: 'botName',
+      message: 'Bot mention name',
+      initial: existingSlack?.botName || 'claude',
+      hint: 'Users will @mention this name',
+    },
+    {
+      type: 'text',
+      name: 'allowedUsers',
+      message: 'Allowed usernames (optional)',
+      initial: existingSlack?.allowedUsers?.join(',') || '',
+      hint: 'Comma-separated, or empty for everyone',
+    },
+    {
+      type: 'confirm',
+      name: 'skipPermissions',
+      message: 'Auto-approve all actions?',
+      initial: existingSlack?.skipPermissions || false,
+      hint: 'If no, you\'ll approve via emoji reactions',
+    },
+  ], { onCancel });
 
-# Bot mention name (users @mention this)
-MATTERMOST_BOT_NAME=${response.botName || 'claude-code'}
+  // Use existing tokens if user left them empty
+  const finalBotToken = response.botToken || existingSlack?.botToken;
+  const finalAppToken = response.appToken || existingSlack?.appToken;
 
-# Allowed usernames (comma-separated, empty = all users)
-ALLOWED_USERS=${response.allowedUsers || ''}
-
-# Skip permission prompts (true = auto-approve, false = require emoji approval)
-SKIP_PERMISSIONS=${response.skipPermissions ? 'true' : 'false'}
-
-# Chrome integration (requires Claude in Chrome extension)
-CLAUDE_CHROME=${response.chrome ? 'true' : 'false'}
-
-# Git worktree mode (off, prompt, require)
-WORKTREE_MODE=${response.worktreeMode || 'prompt'}
-`;
-
-  // Save to same location if reconfiguring, otherwise default location
-  const defaultConfigDir = resolve(homedir(), '.config', 'claude-threads');
-  const defaultEnvPath = resolve(defaultConfigDir, '.env');
-  const envPath = existingPath || defaultEnvPath;
-  const configDir = dirname(envPath);
-
-  try {
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(envPath, envContent, { mode: 0o600 }); // Secure permissions
-  } catch (err) {
-    console.error('');
-    console.error(`  Failed to save config: ${err}`);
+  if (!finalBotToken || !finalAppToken) {
+    console.log('');
+    console.log(dim('  ⚠️  Both tokens are required. Setup cancelled.'));
     process.exit(1);
   }
 
-  console.log('');
-  console.log(green('  ✓ Configuration saved!'));
-  console.log(dim(`    ${envPath}`));
-  console.log('');
-  console.log(dim('  Starting claude-threads...'));
-  console.log('');
+  return {
+    id,
+    type: 'slack',
+    displayName,
+    botToken: finalBotToken,
+    appToken: finalAppToken,
+    channelId: response.channelId,
+    botName: response.botName,
+    allowedUsers: response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [],
+    skipPermissions: response.skipPermissions,
+  };
 }

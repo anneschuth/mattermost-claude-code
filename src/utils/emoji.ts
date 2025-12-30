@@ -1,8 +1,8 @@
 /**
- * Emoji constants and helpers for Mattermost reactions
+ * Emoji constants and helpers for chat platform reactions
  *
- * Centralized place for all emoji-related logic to avoid duplication
- * across session.ts and permission-server.ts
+ * Platform-agnostic emoji utilities used across session management,
+ * permission handling, and user interactions.
  */
 
 /** Emoji names that indicate approval */

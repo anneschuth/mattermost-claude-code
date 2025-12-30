@@ -2,13 +2,18 @@
 
 ## What This Project Does
 
-This is a Mattermost bot that lets users interact with Claude Code through Mattermost. When someone @mentions the bot in a channel, it spawns a Claude Code CLI session in a configured working directory and streams all output to a Mattermost thread. The user can continue the conversation by replying in the thread.
+This is a multi-platform bot that lets users interact with Claude Code through chat platforms. When someone @mentions the bot in a channel, it spawns a Claude Code CLI session in a configured working directory and streams all output to a thread. The user can continue the conversation by replying in the thread.
+
+**Currently Supported Platforms:**
+- Mattermost (full support)
+- Slack (architecture ready, implementation pending)
 
 **Key Features:**
-- Real-time streaming of Claude responses to Mattermost
-- **Multiple concurrent sessions** - one per Mattermost thread
+- Real-time streaming of Claude responses to chat platforms
+- **Multi-platform support** - connect to multiple Mattermost/Slack instances simultaneously
+- **Multiple concurrent sessions** - one per thread, across all platforms
 - **Session persistence** - sessions resume automatically after bot restart
-- **Session collaboration** - `/invite @user` to temporarily allow users in a session
+- **Session collaboration** - `!invite @user` to temporarily allow users in a session
 - **Message approval** - unauthorized users can request approval for their messages
 - Interactive permission approval via emoji reactions
 - Plan approval and question answering via reactions
@@ -21,20 +26,19 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Mattermost                               │
+│                      Chat Platform                               │
 │  ┌──────────────┐                    ┌──────────────────────┐   │
-│  │ User message │ ───WebSocket───▶  │   MattermostClient   │   │
-│  │ + reactions  │ ◀───────────────  │   (main bot)         │   │
+│  │ User message │ ───WebSocket───▶  │   PlatformClient     │   │
+│  │ + reactions  │ ◀───────────────  │   (Mattermost/Slack) │   │
 │  └──────────────┘                    └──────────┬───────────┘   │
 └─────────────────────────────────────────────────┼───────────────┘
                                                   │
                       ┌───────────────────────────┴────────────────┐
                       │              SessionManager                 │
-                      │  - Manages MULTIPLE concurrent sessions     │
-                      │  - Each session tied to a Mattermost thread │
-                      │  - sessions: Map<threadId, Session>         │
+                      │  - Orchestrates session lifecycle           │
+                      │  - Delegates to specialized modules         │
+                      │  - sessions: Map<sessionId, Session>        │
                       │  - postIndex: Map<postId, threadId>         │
-                      │  - Periodic cleanup of idle sessions        │
                       └───────────────────────────┬────────────────┘
                                                   │
                               ┌───────────────────┼───────────────────┐
@@ -63,26 +67,106 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 **MCP Permission Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
-- Each has its own WebSocket to Mattermost
+- Each has its own WebSocket/connection to the platform
 - Posts permission requests to the session's thread
 - Returns allow/deny based on user reaction
 
+## Multi-Platform Support
+
+**Architecture**: claude-threads supports connecting to multiple chat platforms simultaneously through a platform abstraction layer.
+
+**Currently Supported**:
+- ✅ Mattermost (fully implemented)
+- 🔄 Slack (architecture ready, awaiting implementation)
+
+**Key Concepts**:
+
+1. **Platform Abstraction**: `PlatformClient` interface normalizes differences between platforms
+2. **Composite Session IDs**: Sessions are identified by `"platformId:threadId"` to ensure uniqueness across platforms
+3. **Independent Credentials**: Each platform instance has its own URL, token, and channel configuration
+4. **Per-Platform MCP Servers**: Each session's MCP permission server connects to the correct platform
+
+**Configuration**:
+
+Multi-platform mode uses YAML config (`~/.config/claude-threads/config.yaml`):
+
+```yaml
+version: 1
+workingDir: /home/user/repos/myproject
+chrome: false
+worktreeMode: prompt
+
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    displayName: Main Team
+    url: https://chat.example.com
+    token: your-bot-token-here
+    channelId: abc123
+    botName: claude-code
+    allowedUsers: [alice, bob]
+    skipPermissions: false
+```
+
+Configuration is stored in YAML only - no `.env` file support.
+
 ## Source Files
 
+### Core
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point. CLI parsing with Commander, starts bot, handles shutdown |
-| `src/config.ts` | Loads config from CLI args / .env files, exports Config type |
-| `src/onboarding.ts` | Interactive setup wizard when no config exists |
-| `src/claude/cli.ts` | Spawns Claude CLI with correct flags, configures MCP server |
-| `src/claude/session.ts` | Core logic: handles Claude events, formats for Mattermost, manages state |
+| `src/index.ts` | Entry point. CLI parsing, bot startup, message routing |
+| `src/config.ts` | Type exports for config (re-exports from migration.ts) |
+| `src/config/migration.ts` | YAML config loading (`config.yaml`) |
+| `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
+
+### Session Management (Modular Architecture)
+
+The session management is split into focused modules for maintainability:
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/session/manager.ts` | ~635 | **Orchestrator** - thin wrapper that delegates to modules |
+| `src/session/lifecycle.ts` | ~590 | Session start, resume, exit, cleanup |
+| `src/session/events.ts` | ~480 | Claude CLI event handling (assistant, tool_use, etc.) |
+| `src/session/commands.ts` | ~510 | User commands (!cd, !invite, !kick, !permissions) |
+| `src/session/reactions.ts` | ~210 | Emoji reaction handling (approvals, questions) |
+| `src/session/worktree.ts` | ~520 | Git worktree management |
+| `src/session/streaming.ts` | ~180 | Message batching and flushing to chat |
+| `src/session/types.ts` | ~130 | TypeScript types (Session, PendingApproval, etc.) |
+| `src/session/index.ts` | ~15 | Public exports |
+
+**Design Pattern**: SessionManager uses dependency injection via context objects to delegate to modules while maintaining a clean public API.
+
+### Claude CLI
+| File | Purpose |
+|------|---------|
+| `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
 | `src/claude/types.ts` | TypeScript types for Claude stream-json events |
-| `src/mattermost/client.ts` | WebSocket connection, API calls, event parsing |
-| `src/mattermost/message-formatter.ts` | Converts Claude output (diffs, code, tasks) to Mattermost markdown |
-| `src/mattermost/types.ts` | Mattermost API types |
-| `src/mcp/permission-server.ts` | MCP server for handling permission prompts via Mattermost reactions |
-| `src/persistence/session-store.ts` | Persists session state to JSON for resume after restart |
-| `.github/workflows/publish.yml` | GitHub Actions workflow for automated npm publishing |
+
+### Platform Layer
+| File | Purpose |
+|------|---------|
+| `src/platform/client.ts` | PlatformClient interface (abstraction for all platforms) |
+| `src/platform/types.ts` | Normalized types (PlatformPost, PlatformUser, PlatformReaction, etc.) |
+| `src/platform/formatter.ts` | PlatformFormatter interface (markdown dialects) |
+| `src/platform/index.ts` | Public exports |
+| `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
+| `src/platform/mattermost/types.ts` | Mattermost-specific types |
+| `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
+
+### Utilities
+| File | Purpose |
+|------|---------|
+| `src/utils/emoji.ts` | Emoji constants and validators (platform-agnostic) |
+| `src/utils/tool-formatter.ts` | Format tool use for display |
+| `src/utils/logger.ts` | MCP-compatible logging |
+| `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
+| `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
+| `src/platform/permission-api.ts` | PermissionApi interface |
+| `src/mattermost/api.ts` | Standalone Mattermost API helpers |
+| `src/persistence/session-store.ts` | Multi-platform session persistence |
+| `src/logo.ts` | ASCII art logo |
 
 ## How the Permission System Works
 
@@ -97,9 +181,9 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 3. **The MCP server** (running as a subprocess):
    - Receives the permission request via stdio
-   - Posts a message to the Mattermost thread: "⚠️ Permission requested: Write `file.txt`"
+   - Posts a message to the chat thread: "⚠️ Permission requested: Write `file.txt`"
    - Adds reaction options (👍 ✅ 👎) to the message
-   - Opens a WebSocket to Mattermost and waits for a reaction
+   - Opens a WebSocket to the platform and waits for a reaction
 
 4. **User reacts** with an emoji
 
@@ -110,29 +194,20 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 6. **Claude CLI** proceeds or aborts based on the response
 
-## Environment Variables
+## Configuration
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MATTERMOST_URL` | Yes | Mattermost server URL (e.g., `https://chat.example.com`) |
-| `MATTERMOST_TOKEN` | Yes | Bot access token |
-| `MATTERMOST_CHANNEL_ID` | Yes | Channel ID where bot listens |
-| `MATTERMOST_BOT_NAME` | No | Bot username for @mentions (default: `claude-code`) |
-| `ALLOWED_USERS` | No | Comma-separated usernames who can use the bot |
-| `SKIP_PERMISSIONS` | No | Set `true` to skip permission prompts |
-| `CLAUDE_CHROME` | No | Set `true` to enable Chrome integration |
-| `MAX_SESSIONS` | No | Max concurrent sessions (default: `5`) |
-| `SESSION_TIMEOUT_MS` | No | Idle session timeout in ms (default: `1800000` = 30 min) |
-| `DEBUG` | No | Set `1` for debug logging |
-| `CLAUDE_PATH` | No | Custom path to claude binary (default: `claude`) |
+Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 
-**Config priority** (highest to lowest):
-1. CLI arguments (`--url`, `--token`, `--channel`, etc.)
-2. `./.env` (current directory)
-3. `~/.config/claude-threads/.env`
-4. `~/.claude-threads.env`
+**First run:** If no config exists, interactive onboarding guides you through setup.
 
-**First run:** If no config exists and no CLI args provided, interactive onboarding guides you through setup.
+### Environment Variables (Optional)
+
+| Variable | Description |
+|----------|-------------|
+| `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
+| `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
+| `DEBUG` | Set `1` for debug logging |
+| `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
 
 ## Development Commands
 
@@ -141,12 +216,13 @@ npm install          # Install dependencies
 npm run build        # Compile TypeScript to dist/
 npm run dev          # Run from source with tsx watch
 npm start            # Run compiled version
-npm test             # (no tests yet)
+npm test             # Run tests (125 tests)
+npm run lint         # Run ESLint
 ```
 
 ## Testing Locally
 
-1. Create config: `~/.config/claude-threads/.env`
+1. Create config: `~/.config/claude-threads/config.yaml` (or run `claude-threads` for interactive setup)
 2. Build: `npm run build`
 3. Run: `npm start` (or `DEBUG=1 npm start` for verbose output)
 4. In Mattermost, @mention the bot: `@botname write "hello" to test.txt`
@@ -256,38 +332,72 @@ When testing a specific fix:
 - Run `npm install` to ensure dependencies are up to date
 - Check for type mismatches in event handling
 
+## Debugging with Claude Code History
+
+Claude Code stores all conversation history on disk, which is invaluable for debugging:
+
+```
+~/.claude/
+├── history.jsonl          # Index of all sessions (metadata only)
+├── projects/              # Full conversation transcripts
+│   └── -Users-username-project/   # Encoded path (/ → -)
+│       ├── session-id-1.jsonl     # Full conversation
+│       └── session-id-2.jsonl
+├── todos/                 # Todo lists per session
+└── settings.json          # User settings
+```
+
+**Useful debugging commands:**
+```bash
+# List recent sessions
+tail -20 ~/.claude/history.jsonl | jq -r '.cwd + " " + .name'
+
+# Find sessions for this project
+ls ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/
+
+# View a specific session's conversation
+cat ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/SESSION_ID.jsonl | jq .
+```
+
+**Key points:**
+- Directory names are encoded: `/path/to/project/` → `-path-to-project`
+- Each session gets a JSONL file with full conversation history
+- Consider backing up `~/.claude/` regularly
+
 ## Key Implementation Details
 
-### Event Flow (session.ts)
+### Event Flow (src/session/events.ts)
 Claude CLI emits JSON events. Key event types:
 - `assistant` → Claude's text response (streamed in chunks)
 - `tool_use` → Claude wants to use a tool (Read, Write, Bash, etc.)
 - `tool_result` → Result of tool execution
 - `result` → Final result with cost info
 
-### Message Formatting (message-formatter.ts)
-- Diffs are formatted with syntax highlighting
-- Code blocks use language-specific fencing
-- Long content is truncated with "..." indicators
-- Task lists rendered as checkbox markdown
+### Message Streaming (src/session/streaming.ts)
+- Messages are batched and flushed periodically
+- Long content is split across multiple posts (16K limit)
+- Diffs and code blocks use syntax highlighting
 
-### Reaction Handling (session.ts + client.ts)
-- Main bot handles: plan approval, question answers
+### Reaction Handling (src/session/reactions.ts + MCP server)
+- Main bot handles: plan approval, question answers, message approval
 - MCP server handles: permission prompts
 - Both filter to only process allowed users' reactions
 
 ## Future Improvements to Consider
 
-- [ ] Add unit tests
+- [ ] Implement Slack platform support
+- [ ] Add rate limiting for API calls
+- [x] Support file uploads via chat attachments - **Done**
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
-- [x] Add `/cancel` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
+- [x] Add `!stop` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
-- [x] Session collaboration (`/invite`, `/kick`, message approval) - **Done in v0.5.0**
+- [x] Session collaboration (`!invite`, `!kick`, message approval) - **Done in v0.5.0**
 - [x] Persist session state for recovery after restart - **Done in v0.9.0**
 - [x] Add `!escape` command to interrupt without killing session - **Done in v0.10.0** (also ⏸️ reaction)
 - [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
+- [x] Multi-platform architecture - **Done in v0.14.0**
+- [x] Modular session management - **Done in v0.14.0**
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
-- [ ] Support multiple platforms (Mattermost/Slack) in parallel
 - [ ] Keep task list at the bottommost message (always update to latest position)
 - [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
