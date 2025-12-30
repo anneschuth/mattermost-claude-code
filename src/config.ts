@@ -7,13 +7,12 @@
 
 import type { WorktreeMode as WorktreeModeType } from './config/migration.js';
 
-export {
-  loadConfigWithMigration,
-  configExists,
-  type NewConfig,
-  type PlatformInstanceConfig,
-  type MattermostPlatformConfig,
-  type WorktreeMode,
+// Re-export types only - functions are imported directly from migration.ts
+export type {
+  NewConfig,
+  PlatformInstanceConfig,
+  MattermostPlatformConfig,
+  WorktreeMode,
 } from './config/migration.js';
 
 /**

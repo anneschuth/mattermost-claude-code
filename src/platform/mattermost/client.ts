@@ -20,6 +20,8 @@ import type {
   PlatformReaction,
   PlatformFile,
 } from '../index.js';
+import type { PlatformFormatter } from '../formatter.js';
+import { MattermostFormatter } from './formatter.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
@@ -43,6 +45,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   private reconnectDelay = 1000;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
+  private readonly formatter = new MattermostFormatter();
 
   // Heartbeat to detect dead connections
   private pingInterval: ReturnType<typeof setInterval> | null = null;
@@ -447,13 +450,19 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   // Get MCP config for permission server
-  getMcpConfig(): { url: string; token: string; channelId: string; allowedUsers: string[] } {
+  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] } {
     return {
+      type: 'mattermost',
       url: this.url,
       token: this.token,
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
     };
+  }
+
+  // Get platform-specific markdown formatter
+  getFormatter(): PlatformFormatter {
+    return this.formatter;
   }
 
   // Send typing indicator via WebSocket

@@ -19,23 +19,15 @@ const colors = {
  * ASCII logo for CLI display (with ANSI colors)
  * Stylized CT in block characters
  */
-export const CLI_LOGO = `
+const CLI_LOGO = `
 ${colors.orange} ✴${colors.reset} ${colors.blue}▄█▀ ███${colors.reset} ${colors.orange}✴${colors.reset}   ${colors.bold}claude-threads${colors.reset}
 ${colors.orange}✴${colors.reset}  ${colors.blue}█▀   █${colors.reset}   ${colors.orange}✴${colors.reset}  ${colors.dim}Chat × Claude Code${colors.reset}
  ${colors.orange}✴${colors.reset} ${colors.blue}▀█▄  █${colors.reset}  ${colors.orange}✴${colors.reset}
 `;
 
 /**
- * ASCII logo for display in chat (plain text, no ANSI codes)
- */
-export const LOGO = `\`\`\`
- ✴ ▄█▀ ███ ✴   claude-threads
-✴  █▀   █   ✴  Chat × Claude Code
- ✴ ▀█▄  █  ✴
-\`\`\``;
-
-/**
  * Get ASCII logo for claude-threads with version included
+ * For display in chat platforms (plain text, no ANSI codes)
  */
 export function getLogo(version: string): string {
   return `\`\`\`
@@ -44,16 +36,6 @@ export function getLogo(version: string): string {
  ✴ ▀█▄  █  ✴
 \`\`\``;
 }
-
-/**
- * Compact inline logo for chat platform headers
- */
-export const LOGO_INLINE = '`▄█▀T` **claude-threads**';
-
-/**
- * Very compact logo for space-constrained contexts
- */
-export const LOGO_COMPACT = '▄█▀T claude-threads';
 
 /**
  * Print CLI logo to stdout

@@ -28,11 +28,7 @@ import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
 import type { Session } from './types.js';
 
-// Re-export Session type and constants for external use
-export type { Session } from './types.js';
-export { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
-
-// Import for internal use
+// Import constants for internal use
 import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
 
 /**

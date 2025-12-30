@@ -104,7 +104,7 @@ export function handleEvent(
 /**
  * Format a Claude event for display in chat platforms.
  */
-export function formatEvent(
+function formatEvent(
   session: Session,
   e: ClaudeEvent,
   ctx: EventContext
@@ -127,7 +127,7 @@ export function formatEvent(
           const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
-          const formatted = sharedFormatToolUse(block.name, block.input || {}, { detailed: true });
+          const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true });
           if (formatted) parts.push(formatted);
         } else if (block.type === 'thinking' && block.thinking) {
           // Extended thinking - show abbreviated version
@@ -149,7 +149,7 @@ export function formatEvent(
       if (tool.id) {
         session.activeToolStarts.set(tool.id, Date.now());
       }
-      return sharedFormatToolUse(tool.name, tool.input || {}, { detailed: true }) || null;
+      return sharedFormatToolUse(tool.name, tool.input || {}, session.platform.getFormatter(), { detailed: true }) || null;
     }
     case 'tool_result': {
       const result = e.tool_result as { tool_use_id?: string; is_error?: boolean };
@@ -205,7 +205,7 @@ export function formatEvent(
 /**
  * Handle ExitPlanMode tool use - post approval prompt.
  */
-export async function handleExitPlanMode(
+async function handleExitPlanMode(
   session: Session,
   toolUseId: string,
   ctx: EventContext
@@ -260,7 +260,7 @@ export async function handleExitPlanMode(
 /**
  * Handle TodoWrite tool use - update task list display.
  */
-export async function handleTodoWrite(
+async function handleTodoWrite(
   session: Session,
   input: Record<string, unknown>
 ): Promise<void> {
@@ -343,7 +343,7 @@ export async function handleTodoWrite(
 /**
  * Handle Task (subagent) start - post status message.
  */
-export async function handleTaskStart(
+async function handleTaskStart(
   session: Session,
   toolUseId: string,
   input: Record<string, unknown>
@@ -365,7 +365,7 @@ export async function handleTaskStart(
 /**
  * Handle Task (subagent) completion - update status message.
  */
-export async function handleTaskComplete(
+async function handleTaskComplete(
   session: Session,
   toolUseId: string,
   postId: string
@@ -390,7 +390,7 @@ export async function handleTaskComplete(
 /**
  * Handle AskUserQuestion tool use - start interactive question flow.
  */
-export async function handleAskUserQuestion(
+async function handleAskUserQuestion(
   session: Session,
   toolUseId: string,
   input: Record<string, unknown>,

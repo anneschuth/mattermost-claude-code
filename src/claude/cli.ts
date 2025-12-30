@@ -26,6 +26,7 @@ export interface ImageContentBlock {
 export type ContentBlock = TextContentBlock | ImageContentBlock;
 
 export interface PlatformMcpConfig {
+  type: string;
   url: string;
   token: string;
   channelId: string;
@@ -84,13 +85,20 @@ export class ClaudeCli extends EventEmitter {
       if (!platformConfig) {
         throw new Error('platformConfig is required when skipPermissions is false');
       }
+      // Use platform-agnostic environment variables
       const mcpEnv = {
-        MM_THREAD_ID: this.options.threadId || '',
+        PLATFORM_TYPE: platformConfig.type,
+        PLATFORM_URL: platformConfig.url,
+        PLATFORM_TOKEN: platformConfig.token,
+        PLATFORM_CHANNEL_ID: platformConfig.channelId,
+        PLATFORM_THREAD_ID: this.options.threadId || '',
+        ALLOWED_USERS: platformConfig.allowedUsers.join(','),
+        DEBUG: this.debug ? '1' : '',
+        // Legacy env vars for backwards compatibility
         MATTERMOST_URL: platformConfig.url,
         MATTERMOST_TOKEN: platformConfig.token,
         MATTERMOST_CHANNEL_ID: platformConfig.channelId,
-        ALLOWED_USERS: platformConfig.allowedUsers.join(','),
-        DEBUG: this.debug ? '1' : '',
+        MM_THREAD_ID: this.options.threadId || '',
       };
 
       const mcpConfig = {

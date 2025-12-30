@@ -9,6 +9,12 @@
 // Core interfaces
 export type { PlatformClient, PlatformClientEvents } from './client.js';
 export type { PlatformFormatter } from './formatter.js';
+export type {
+  PermissionApi,
+  PermissionApiConfig,
+  ReactionEvent,
+  PostedMessage,
+} from './permission-api.js';
 
 // Normalized types
 export type {

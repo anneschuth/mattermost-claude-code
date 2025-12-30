@@ -5,6 +5,7 @@ import type {
   PlatformReaction,
   PlatformFile,
 } from './types.js';
+import type { PlatformFormatter } from './formatter.js';
 
 /**
  * Events emitted by PlatformClient
@@ -88,7 +89,13 @@ export interface PlatformClient extends EventEmitter {
   /**
    * Get platform config for MCP permission server
    */
-  getMcpConfig(): { url: string; token: string; channelId: string; allowedUsers: string[] };
+  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] };
+
+  /**
+   * Get the platform-specific markdown formatter
+   * Use this to format bold, code, etc. in a platform-appropriate way.
+   */
+  getFormatter(): PlatformFormatter;
 
   // ============================================================================
   // Messaging

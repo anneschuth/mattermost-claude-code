@@ -18,7 +18,7 @@ export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'conf
 // Types
 // =============================================================================
 
-export interface LegacyEnvConfig {
+interface LegacyEnvConfig {
   MATTERMOST_URL?: string;
   MATTERMOST_TOKEN?: string;
   MATTERMOST_CHANNEL_ID?: string;
@@ -75,7 +75,7 @@ export interface SlackPlatformConfig extends PlatformInstanceConfig {
 /**
  * Detect if legacy .env config exists
  */
-export function hasLegacyConfig(): { exists: boolean; path: string | null } {
+function hasLegacyConfig(): { exists: boolean; path: string | null } {
   for (const envPath of ENV_PATHS) {
     if (existsSync(envPath)) {
       return { exists: true, path: envPath };
@@ -87,7 +87,7 @@ export function hasLegacyConfig(): { exists: boolean; path: string | null } {
 /**
  * Convert legacy .env to new YAML config
  */
-export function migrateLegacyConfig(envPath: string): NewConfig {
+function migrateLegacyConfig(envPath: string): NewConfig {
   const content = readFileSync(envPath, 'utf-8');
   const env = parseEnv(content) as LegacyEnvConfig;
 
