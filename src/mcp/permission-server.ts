@@ -24,9 +24,6 @@
  *   - PLATFORM_THREAD_ID: Thread ID for the current session
  *   - ALLOWED_USERS: Comma-separated list of authorized usernames
  *   - DEBUG: Set to '1' for debug logging
- *
- * Legacy Mattermost environment variables are also supported:
- *   - MATTERMOST_URL, MATTERMOST_TOKEN, MATTERMOST_CHANNEL_ID, MM_THREAD_ID
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -41,12 +38,11 @@ import { createMattermostPermissionApi } from '../platform/mattermost/permission
 // Configuration
 // =============================================================================
 
-// Support both new platform-agnostic and legacy Mattermost env vars
-const PLATFORM_TYPE = process.env.PLATFORM_TYPE || 'mattermost';
-const PLATFORM_URL = process.env.PLATFORM_URL || process.env.MATTERMOST_URL || '';
-const PLATFORM_TOKEN = process.env.PLATFORM_TOKEN || process.env.MATTERMOST_TOKEN || '';
-const PLATFORM_CHANNEL_ID = process.env.PLATFORM_CHANNEL_ID || process.env.MATTERMOST_CHANNEL_ID || '';
-const PLATFORM_THREAD_ID = process.env.PLATFORM_THREAD_ID || process.env.MM_THREAD_ID || '';
+const PLATFORM_TYPE = process.env.PLATFORM_TYPE || '';
+const PLATFORM_URL = process.env.PLATFORM_URL || '';
+const PLATFORM_TOKEN = process.env.PLATFORM_TOKEN || '';
+const PLATFORM_CHANNEL_ID = process.env.PLATFORM_CHANNEL_ID || '';
+const PLATFORM_THREAD_ID = process.env.PLATFORM_THREAD_ID || '';
 const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .split(',')
   .map(u => u.trim())
