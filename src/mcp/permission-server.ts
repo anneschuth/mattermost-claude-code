@@ -32,7 +32,7 @@ import { isApprovalEmoji, isAllowAllEmoji, APPROVAL_EMOJIS, ALLOW_ALL_EMOJIS, DE
 import { formatToolForPermission } from '../utils/tool-formatter.js';
 import { mcpLogger } from '../utils/logger.js';
 import type { PermissionApi, PermissionApiConfig } from '../platform/permission-api.js';
-import { createMattermostPermissionApi } from '../platform/mattermost/permission-api.js';
+import { createPermissionApi } from '../platform/permission-api-factory.js';
 
 // =============================================================================
 // Configuration
@@ -51,22 +51,8 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
 const PERMISSION_TIMEOUT_MS = 120000; // 2 minutes
 
 // =============================================================================
-// Platform API Factory
+// Permission API Instance
 // =============================================================================
-
-function createPermissionApi(config: PermissionApiConfig): PermissionApi {
-  switch (PLATFORM_TYPE) {
-    case 'mattermost':
-      return createMattermostPermissionApi(config);
-    // TODO: Add Slack support
-    // case 'slack':
-    //   return createSlackPermissionApi(config);
-    default:
-      throw new Error(`Unsupported platform type: ${PLATFORM_TYPE}`);
-  }
-}
-
-// Create the permission API instance
 const apiConfig: PermissionApiConfig = {
   url: PLATFORM_URL,
   token: PLATFORM_TOKEN,
@@ -80,7 +66,7 @@ let permissionApi: PermissionApi | null = null;
 
 function getApi(): PermissionApi {
   if (!permissionApi) {
-    permissionApi = createPermissionApi(apiConfig);
+    permissionApi = createPermissionApi(PLATFORM_TYPE, apiConfig);
   }
   return permissionApi;
 }
