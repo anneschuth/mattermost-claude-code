@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2025-12-30
+
+### Fixed
+- Don't show "update available" notice when running a newer version than npm (fixes stale cache edge case)
+
 ## [0.14.0] - 2025-12-30
 
 ### Added
