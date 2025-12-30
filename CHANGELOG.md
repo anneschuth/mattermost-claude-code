@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2025-12-30
+
+### Changed
+- **License**: Changed from MIT to Apache 2.0 (adds patent protection)
+
+### Added
+- **Community standards**: CODE_OF_CONDUCT.md, CONTRIBUTING.md, SECURITY.md
+- **GitHub templates**: Issue templates (bug report, feature request), PR template
+- **Dependabot**: Automated dependency updates for npm and GitHub Actions
+- **README badges**: Added npm downloads, Node.js version, TypeScript, PRs welcome
+
+### Security
+- Updated dependencies via Dependabot
+
 ## [0.14.1] - 2025-12-30
 
 ### Fixed
