@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { program } from 'commander';
-import { loadConfig, configExists, type CliArgs } from './config.js';
+import { loadConfigWithMigration, configExists as checkConfigExists, type MattermostPlatformConfig } from './config/migration.js';
+import type { CliArgs } from './config.js';
 import { runOnboarding } from './onboarding.js';
-import { MattermostClient } from './mattermost/client.js';
+import { MattermostClient } from './platform/mattermost/client.js';
 import { SessionManager } from './claude/session.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { readFileSync } from 'fs';
@@ -69,12 +70,32 @@ async function main() {
   // Check if we need onboarding
   if (opts.setup) {
     await runOnboarding(true); // reconfigure mode
-  } else if (!configExists() && !hasRequiredCliArgs(opts)) {
+  } else if (!checkConfigExists() && !hasRequiredCliArgs(opts)) {
     await runOnboarding(false); // first-time mode
   }
 
   const workingDir = process.cwd();
-  const config = loadConfig(cliArgs);
+  const newConfig = loadConfigWithMigration();
+
+  if (!newConfig) {
+    throw new Error('No configuration found. Run with --setup to configure.');
+  }
+
+  // CLI args can override global settings
+  if (cliArgs.chrome !== undefined) {
+    newConfig.chrome = cliArgs.chrome;
+  }
+  if (cliArgs.worktreeMode !== undefined) {
+    newConfig.worktreeMode = cliArgs.worktreeMode;
+  }
+
+  // Get first Mattermost platform
+  const platformConfig = newConfig.platforms.find(p => p.type === 'mattermost') as MattermostPlatformConfig;
+  if (!platformConfig) {
+    throw new Error('No Mattermost platform configured.');
+  }
+
+  const config = newConfig;
 
   // Print ASCII logo
   printLogo();
@@ -83,9 +104,9 @@ async function main() {
   console.log(dim(`  v${pkg.version}`));
   console.log('');
   console.log(`  📂 ${cyan(workingDir)}`);
-  console.log(`  💬 ${cyan('@' + config.mattermost.botName)}`);
-  console.log(`  🌐 ${dim(config.mattermost.url)}`);
-  if (config.skipPermissions) {
+  console.log(`  💬 ${cyan('@' + platformConfig.botName)}`);
+  console.log(`  🌐 ${dim(platformConfig.url)}`);
+  if (platformConfig.skipPermissions) {
     console.log(`  ⚠️ ${dim('Permissions disabled')}`);
   } else {
     console.log(`  🔐 ${dim('Interactive permissions')}`);
@@ -95,8 +116,8 @@ async function main() {
   }
   console.log('');
 
-  const mattermost = new MattermostClient(config);
-  const session = new SessionManager(workingDir, config.skipPermissions, config.chrome, config.worktreeMode);
+  const mattermost = new MattermostClient(platformConfig);
+  const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
 
   // Register platform (connects event handlers)
   session.addPlatform(mattermost);
@@ -393,7 +414,7 @@ async function main() {
   // Resume any persisted sessions from before restart
   await session.initialize();
 
-  console.log(`  ✅ ${bold('Ready!')} Waiting for @${config.mattermost.botName} mentions...`);
+  console.log(`  ✅ ${bold('Ready!')} Waiting for @${platformConfig.botName} mentions...`);
   console.log('');
 
   let isShuttingDown = false;

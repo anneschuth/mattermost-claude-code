@@ -228,17 +228,6 @@ export class SessionManager {
 
   /**
    * BACKWARD COMPATIBILITY: Get first platform as "mattermost"
-   * This allows existing code to work during the migration
-   * @deprecated Use session.platform instead
-   */
-  private get mattermost(): PlatformClient {
-    const first = this.platforms.values().next().value;
-    if (!first) {
-      throw new Error('No platforms registered. Call addPlatform() first.');
-    }
-    return first;
-  }
-
   /**
    * Helper: Create composite session ID
    */
@@ -376,8 +365,15 @@ export class SessionManager {
   private async resumeSession(state: PersistedSession): Promise<void> {
     const shortId = state.threadId.substring(0, 8);
 
+    // Get platform for this session
+    const platform = this.platforms.get(state.platformId);
+    if (!platform) {
+      console.log(`  ⚠️ Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
+      return;
+    }
+
     // Verify thread still exists
-    const post = await this.mattermost.getPost(state.threadId);
+    const post = await platform.getPost(state.threadId);
     if (!post) {
       console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
       this.sessionStore.remove(`${state.platformId}:${state.threadId}`);
@@ -390,13 +386,7 @@ export class SessionManager {
       return;
     }
 
-    // MIGRATION NOTE: For now, use 'default' platformId for resumed sessions
-    // This will be updated when persistence layer is migrated to store platformId
-    const platformId = 'default';
-    const platform = this.platforms.get(platformId);
-    if (!platform) {
-      throw new Error(`Platform '${platformId}' not found. Call addPlatform() before resuming sessions.`);
-    }
+    const platformId = state.platformId;
     const sessionId = this.getSessionId(platformId, state.threadId);
 
     // Create Claude CLI with resume flag
@@ -467,7 +457,7 @@ export class SessionManager {
       console.log(`  🔄 Resumed session ${shortId}... (@${state.startedBy})`);
 
       // Post resume message
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `🔄 **Session resumed** after bot restart (v${pkg.version})\n*Reconnected to Claude session. You can continue where you left off.*`,
         state.threadId
       );
@@ -484,7 +474,7 @@ export class SessionManager {
 
       // Try to notify user
       try {
-        await this.mattermost.createPost(
+        await session.platform.createPost(
           `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
           state.threadId
         );
@@ -619,12 +609,15 @@ export class SessionManager {
    * Checks global allowlist first, then session-specific allowlist.
    */
   isUserAllowedInSession(threadId: string, username: string): boolean {
-    // Check global allowlist first
-    if (this.mattermost.isUserAllowed(username)) return true;
-
-    // Check session-specific allowlist (search by threadId)
+    // Get session first (search by threadId)
     const session = this.getSession(threadId);
-    if (session?.sessionAllowedUsers.has(username)) return true;
+    if (!session) return false;
+
+    // Check global allowlist (platform-specific)
+    if (session.platform.isUserAllowed(username)) return true;
+
+    // Check session-specific allowlist
+    if (session.sessionAllowedUsers.has(username)) return true;
 
     return false;
   }
@@ -636,7 +629,8 @@ export class SessionManager {
   async startSession(
     options: { prompt: string; files?: PlatformFile[] },
     username: string,
-    replyToPostId?: string
+    replyToPostId?: string,
+    platformId: string = 'default'
   ): Promise<void> {
     const threadId = replyToPostId || '';
 
@@ -648,9 +642,14 @@ export class SessionManager {
       return;
     }
 
+    const platform = this.platforms.get(platformId);
+    if (!platform) {
+      throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
+    }
+
     // Check max sessions limit
     if (this.sessions.size >= MAX_SESSIONS) {
-      await this.mattermost.createPost(
+      await platform.createPost(
         `⚠️ **Too busy** - ${this.sessions.size} sessions active. Please try again later.`,
         replyToPostId
       );
@@ -660,7 +659,7 @@ export class SessionManager {
     // Post initial session message (will be updated by updateSessionHeader)
     let post;
     try {
-      post = await this.mattermost.createPost(
+      post = await platform.createPost(
         `${getMattermostLogo(pkg.version)}\n\n*Starting session...*`,
         replyToPostId
       );
@@ -670,14 +669,6 @@ export class SessionManager {
       return;
     }
     const actualThreadId = replyToPostId || post.id;
-
-    // MIGRATION NOTE: For now, use 'default' platformId for new sessions
-    // This will be updated when message handling is moved into SessionManager
-    const platformId = 'default';
-    const platform = this.platforms.get(platformId);
-    if (!platform) {
-      throw new Error(`Platform '${platformId}' not found. Call addPlatform() before starting sessions.`);
-    }
     const sessionId = this.getSessionId(platformId, actualThreadId);
 
     // Generate a unique session ID for this Claude session
@@ -751,7 +742,7 @@ export class SessionManager {
     } catch (err) {
       console.error('  ❌ Failed to start Claude:', err);
       this.stopTyping(session);
-      await this.mattermost.createPost(`❌ ${err}`, actualThreadId);
+      await session.platform.createPost(`❌ ${err}`, actualThreadId);
       this.sessions.delete(session.sessionId);
       return;
     }
@@ -769,7 +760,7 @@ export class SessionManager {
     }
 
     // Send the message to Claude (with images if present)
-    const content = await this.buildMessageContent(options.prompt, options.files);
+    const content = await this.buildMessageContent(options.prompt, session.platform, options.files);
     claude.sendMessage(content);
 
     // Persist session for resume after restart
@@ -799,7 +790,7 @@ export class SessionManager {
       session.pendingWorktreePrompt = false;
       if (session.worktreePromptPostId) {
         try {
-          await this.mattermost.updatePost(session.worktreePromptPostId,
+          await session.platform.updatePost(session.worktreePromptPostId,
             `✅ Using branch \`${branch}\` (specified in message)`);
         } catch (err) {
           console.error('  ⚠️ Failed to update worktree prompt:', err);
@@ -888,7 +879,7 @@ export class SessionManager {
     // Create post with ❌ reaction option (except for 'require' mode)
     // Use 'x' emoji name, not Unicode ❌ character
     const reactionOptions = reason === 'require' ? [] : ['x'];
-    const post = await this.mattermost.createInteractivePost(
+    const post = await session.platform.createInteractivePost(
       message,
       reactionOptions,
       session.threadId
@@ -954,7 +945,7 @@ export class SessionManager {
 
   private async handleTaskComplete(session: Session, toolUseId: string, postId: string): Promise<void> {
     try {
-      await this.mattermost.updatePost(postId,
+      await session.platform.updatePost(postId,
         session.activeSubagents.has(toolUseId)
           ? `🤖 **Subagent** ✅ *completed*`
           : `🤖 **Subagent** ✅`
@@ -993,7 +984,7 @@ export class SessionManager {
       `👎 Request changes\n\n` +
       `*React to respond*`;
 
-    const post = await this.mattermost.createInteractivePost(
+    const post = await session.platform.createInteractivePost(
       message,
       [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
       session.threadId
@@ -1020,7 +1011,7 @@ export class SessionManager {
       // Clear tasks display if empty
       if (session.tasksPostId) {
         try {
-          await this.mattermost.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
+          await session.platform.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
         } catch (err) {
           console.error('  ⚠️ Failed to update tasks:', err);
         }
@@ -1074,9 +1065,9 @@ export class SessionManager {
     // Update or create tasks post
     try {
       if (session.tasksPostId) {
-        await this.mattermost.updatePost(session.tasksPostId, message);
+        await session.platform.updatePost(session.tasksPostId, message);
       } else {
-        const post = await this.mattermost.createPost(message, session.threadId);
+        const post = await session.platform.createPost(message, session.threadId);
         session.tasksPostId = post.id;
       }
     } catch (err) {
@@ -1094,7 +1085,7 @@ export class SessionManager {
       `⏳ Running...`;
 
     try {
-      const post = await this.mattermost.createPost(message, session.threadId);
+      const post = await session.platform.createPost(message, session.threadId);
       session.activeSubagents.set(toolUseId, post.id);
     } catch (err) {
       console.error('  ⚠️ Failed to post subagent status:', err);
@@ -1411,6 +1402,7 @@ export class SessionManager {
    */
   private async buildMessageContent(
     text: string,
+    platform: PlatformClient,
     files?: PlatformFile[]
   ): Promise<string | ContentBlock[]> {
     // Filter to only image files
@@ -1430,11 +1422,11 @@ export class SessionManager {
     // Download and add each image
     for (const file of imageFiles) {
       try {
-        if (!this.mattermost.downloadFile) {
+        if (!platform.downloadFile) {
           console.warn(`  ⚠️ Platform does not support file downloads, skipping ${file.name}`);
           continue;
         }
-        const buffer = await this.mattermost.downloadFile(file.id);
+        const buffer = await platform.downloadFile(file.id);
         const base64 = buffer.toString('base64');
 
         blocks.push({
@@ -1589,7 +1581,7 @@ export class SessionManager {
       }
       // Notify user they can send a new message to resume
       try {
-        await this.mattermost.createPost(
+        await session.platform.createPost(
           `ℹ️ Session paused. Send a new message to continue.`,
           session.threadId
         );
@@ -1612,7 +1604,7 @@ export class SessionManager {
       this.sessions.delete(session.sessionId);
       // Post error message but keep persistence
       try {
-        await this.mattermost.createPost(
+        await session.platform.createPost(
           `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
           session.threadId
         );
@@ -1632,7 +1624,7 @@ export class SessionManager {
     await this.flush(session);
 
     if (code !== 0 && code !== null) {
-      await this.mattermost.createPost(`**[Exited: ${code}]**`, session.threadId);
+      await session.platform.createPost(`**[Exited: ${code}]**`, session.threadId);
     }
 
     // Clean up session from maps
@@ -1674,7 +1666,7 @@ export class SessionManager {
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session || !session.claude.isRunning()) return;
-    const content = await this.buildMessageContent(message, files);
+    const content = await this.buildMessageContent(message, session.platform, files);
     session.claude.sendMessage(content);
     session.lastActivityAt = new Date();
     this.startTyping(session);
@@ -1713,7 +1705,7 @@ export class SessionManager {
     // Wait a moment for the session to be ready, then send the message
     const session = this.sessions.get(threadId);
     if (session && session.claude.isRunning()) {
-      const content = await this.buildMessageContent(message, files);
+      const content = await this.buildMessageContent(message, session.platform, files);
       session.claude.sendMessage(content);
       session.lastActivityAt = new Date();
       this.startTyping(session);
@@ -1770,7 +1762,7 @@ export class SessionManager {
     const shortId = threadId.substring(0, 8);
     console.log(`  🛑 Session (${shortId}…) cancelled by @${username}`);
 
-    await this.mattermost.createPost(
+    await session.platform.createPost(
       `🛑 **Session cancelled** by @${username}`,
       threadId
     );
@@ -1784,7 +1776,7 @@ export class SessionManager {
     if (!session) return;
 
     if (!session.claude.isRunning()) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `ℹ️ Session is idle, nothing to interrupt`,
         threadId
       );
@@ -1799,7 +1791,7 @@ export class SessionManager {
 
     if (interrupted) {
       console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `⏸️ **Interrupted** by @${username}`,
         threadId
       );
@@ -1812,8 +1804,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or globally allowed users can change directory
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can change the working directory`,
         threadId
       );
@@ -1832,7 +1824,7 @@ export class SessionManager {
     // Check if directory exists
     const { existsSync, statSync } = await import('fs');
     if (!existsSync(absoluteDir)) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Directory does not exist: \`${newDir}\``,
         threadId
       );
@@ -1840,7 +1832,7 @@ export class SessionManager {
     }
 
     if (!statSync(absoluteDir).isDirectory()) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Not a directory: \`${newDir}\``,
         threadId
       );
@@ -1891,7 +1883,7 @@ export class SessionManager {
     } catch (err) {
       session.isRestarting = false;  // Reset flag on failure since exit won't fire
       console.error('  ❌ Failed to restart Claude:', err);
-      await this.mattermost.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
+      await session.platform.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
       return;
     }
 
@@ -1899,7 +1891,7 @@ export class SessionManager {
     await this.updateSessionHeader(session);
 
     // Post confirmation
-    await this.mattermost.createPost(
+    await session.platform.createPost(
       `📂 **Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`,
       threadId
     );
@@ -1918,8 +1910,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or globally allowed users can invite
-    if (session.startedBy !== invitedBy && !this.mattermost.isUserAllowed(invitedBy)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== invitedBy && !session.platform.isUserAllowed(invitedBy)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can invite others`,
         threadId
       );
@@ -1927,7 +1919,7 @@ export class SessionManager {
     }
 
     session.sessionAllowedUsers.add(invitedUser);
-    await this.mattermost.createPost(
+    await session.platform.createPost(
       `✅ @${invitedUser} can now participate in this session (invited by @${invitedBy})`,
       threadId
     );
@@ -1942,8 +1934,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or globally allowed users can kick
-    if (session.startedBy !== kickedBy && !this.mattermost.isUserAllowed(kickedBy)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== kickedBy && !session.platform.isUserAllowed(kickedBy)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can kick others`,
         threadId
       );
@@ -1952,7 +1944,7 @@ export class SessionManager {
 
     // Can't kick session owner
     if (kickedUser === session.startedBy) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `⚠️ Cannot kick session owner @${session.startedBy}`,
         threadId
       );
@@ -1960,8 +1952,8 @@ export class SessionManager {
     }
 
     // Can't kick globally allowed users (they'll still have access)
-    if (this.mattermost.isUserAllowed(kickedUser)) {
-      await this.mattermost.createPost(
+    if (session.platform.isUserAllowed(kickedUser)) {
+      await session.platform.createPost(
         `⚠️ @${kickedUser} is globally allowed and cannot be kicked from individual sessions`,
         threadId
       );
@@ -1969,7 +1961,7 @@ export class SessionManager {
     }
 
     if (session.sessionAllowedUsers.delete(kickedUser)) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `🚫 @${kickedUser} removed from this session by @${kickedBy}`,
         threadId
       );
@@ -1977,7 +1969,7 @@ export class SessionManager {
       await this.updateSessionHeader(session);
       this.persistSession(session);  // Persist collaboration change
     } else {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `⚠️ @${kickedUser} was not in this session`,
         threadId
       );
@@ -1993,8 +1985,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or globally allowed users can change permissions
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can change permissions`,
         threadId
       );
@@ -2003,7 +1995,7 @@ export class SessionManager {
 
     // Can only downgrade, not upgrade
     if (!this.skipPermissions) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `ℹ️ Permissions are already interactive for this session`,
         threadId
       );
@@ -2012,7 +2004,7 @@ export class SessionManager {
 
     // Already enabled for this session
     if (session.forceInteractivePermissions) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `ℹ️ Interactive permissions already enabled for this session`,
         threadId
       );
@@ -2058,7 +2050,7 @@ export class SessionManager {
     } catch (err) {
       session.isRestarting = false;  // Reset flag on failure since exit won't fire
       console.error('  ❌ Failed to restart Claude:', err);
-      await this.mattermost.createPost(`❌ Failed to enable interactive permissions: ${err}`, threadId);
+      await session.platform.createPost(`❌ Failed to enable interactive permissions: ${err}`, threadId);
       return;
     }
 
@@ -2066,7 +2058,7 @@ export class SessionManager {
     await this.updateSessionHeader(session);
 
     // Post confirmation
-    await this.mattermost.createPost(
+    await session.platform.createPost(
       `🔐 **Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`,
       threadId
     );
@@ -2166,7 +2158,7 @@ export class SessionManager {
 
     const preview = message.length > 100 ? message.substring(0, 100) + '…' : message;
 
-    const post = await this.mattermost.createInteractivePost(
+    const post = await session.platform.createInteractivePost(
       `🔒 **@${username}** wants to send a message:\n> ${preview}\n\n` +
       `React 👍 to allow this message, ✅ to invite them to the session, 👎 to deny`,
       [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
@@ -2195,13 +2187,13 @@ export class SessionManager {
     if (!session || !session.pendingWorktreePrompt) return false;
 
     // Only session owner can respond
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
       return false;
     }
 
     // Validate branch name
     if (!isValidBranchName(branchName)) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`,
         threadId
       );
@@ -2221,14 +2213,14 @@ export class SessionManager {
     if (!session || !session.pendingWorktreePrompt) return;
 
     // Only session owner can skip
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
       return;
     }
 
     // Update the prompt post
     if (session.worktreePromptPostId) {
       try {
-        await this.mattermost.updatePost(session.worktreePromptPostId,
+        await session.platform.updatePost(session.worktreePromptPostId,
           `✅ Continuing in main repo (skipped by @${username})`);
       } catch (err) {
         console.error('  ⚠️ Failed to update worktree prompt:', err);
@@ -2259,8 +2251,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
         threadId
       );
@@ -2270,7 +2262,7 @@ export class SessionManager {
     // Check if we're in a git repo
     const isRepo = await isGitRepository(session.workingDir);
     if (!isRepo) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Current directory is not a git repository`,
         threadId
       );
@@ -2283,7 +2275,7 @@ export class SessionManager {
     // Check if worktree already exists for this branch
     const existing = await findWorktreeByBranch(repoRoot, branch);
     if (existing && !existing.isMain) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `⚠️ Worktree for branch \`${branch}\` already exists at \`${existing.path}\`. Use \`!worktree switch ${branch}\` to switch to it.`,
         threadId
       );
@@ -2303,7 +2295,7 @@ export class SessionManager {
       // Update the prompt post if it exists
       if (session.worktreePromptPostId) {
         try {
-          await this.mattermost.updatePost(session.worktreePromptPostId,
+          await session.platform.updatePost(session.worktreePromptPostId,
             `✅ Created worktree for \`${branch}\``);
         } catch (err) {
           console.error('  ⚠️ Failed to update worktree prompt:', err);
@@ -2368,7 +2360,7 @@ export class SessionManager {
 
       // Post confirmation
       const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `✅ **Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`,
         threadId
       );
@@ -2387,7 +2379,7 @@ export class SessionManager {
       console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
     } catch (err) {
       console.error(`  ❌ Failed to create worktree:`, err);
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
         threadId
       );
@@ -2402,8 +2394,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
         threadId
       );
@@ -2422,7 +2414,7 @@ export class SessionManager {
     );
 
     if (!target) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
         threadId
       );
@@ -2454,7 +2446,7 @@ export class SessionManager {
     // Check if we're in a git repo
     const isRepo = await isGitRepository(session.workingDir);
     if (!isRepo) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Current directory is not a git repository`,
         threadId
       );
@@ -2466,7 +2458,7 @@ export class SessionManager {
     const worktrees = await listWorktrees(repoRoot);
 
     if (worktrees.length === 0) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `📋 No worktrees found for this repository`,
         threadId
       );
@@ -2484,7 +2476,7 @@ export class SessionManager {
       message += `• \`${wt.branch}\` → \`${shortPath}\` ${label}${marker}\n`;
     }
 
-    await this.mattermost.createPost(message, threadId);
+    await session.platform.createPost(message, threadId);
   }
 
   /**
@@ -2495,8 +2487,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
         threadId
       );
@@ -2515,7 +2507,7 @@ export class SessionManager {
     );
 
     if (!target) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
         threadId
       );
@@ -2524,7 +2516,7 @@ export class SessionManager {
 
     // Can't remove the main repository
     if (target.isMain) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`,
         threadId
       );
@@ -2533,7 +2525,7 @@ export class SessionManager {
 
     // Can't remove the current working directory
     if (session.workingDir === target.path) {
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Cannot remove the current working directory. Switch to another worktree first.`,
         threadId
       );
@@ -2544,7 +2536,7 @@ export class SessionManager {
       await removeGitWorktree(repoRoot, target.path);
 
       const shortPath = target.path.replace(process.env.HOME || '', '~');
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `✅ Removed worktree \`${target.branch}\` at \`${shortPath}\``,
         threadId
       );
@@ -2552,7 +2544,7 @@ export class SessionManager {
       console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
     } catch (err) {
       console.error(`  ❌ Failed to remove worktree:`, err);
-      await this.mattermost.createPost(
+      await session.platform.createPost(
         `❌ Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
         threadId
       );
@@ -2567,8 +2559,8 @@ export class SessionManager {
     if (!session) return;
 
     // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
-      await this.mattermost.createPost(
+    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+      await session.platform.createPost(
         `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
         threadId
       );
@@ -2578,7 +2570,7 @@ export class SessionManager {
     session.worktreePromptDisabled = true;
     this.persistSession(session);
 
-    await this.mattermost.createPost(
+    await session.platform.createPost(
       `✅ Worktree prompts disabled for this session`,
       threadId
     );
@@ -2662,7 +2654,7 @@ export class SessionManager {
         const mins = Math.round(idleTime / 60000);
         const shortId = threadId.substring(0, 8);
         console.log(`  ⏰ Session (${shortId}…) timed out after ${mins}m idle`);
-        this.mattermost.createPost(
+        session.platform.createPost(
           `⏰ **Session timed out** — no activity for ${mins} minutes`,
           session.threadId
         ).catch(() => {});
@@ -2673,7 +2665,7 @@ export class SessionManager {
         const remainingMins = Math.round((SESSION_TIMEOUT_MS - idleTime) / 60000);
         const shortId = threadId.substring(0, 8);
         console.log(`  ⚠️ Session (${shortId}…) warning: ${remainingMins}m until timeout`);
-        this.mattermost.createPost(
+        session.platform.createPost(
           `⚠️ **Session idle** — will time out in ~${remainingMins} minutes. Send a message to keep it alive.`,
           session.threadId
         ).catch(() => {});
