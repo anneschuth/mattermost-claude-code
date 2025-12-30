@@ -477,8 +477,8 @@ export class SessionManager {
       this.persistSession(session);
     } catch (err) {
       console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
-      this.sessions.delete(state.threadId);
-      this.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+      this.sessions.delete(sessionId);
+      this.sessionStore.remove(sessionId);
 
       // Try to notify user
       try {
@@ -748,7 +748,7 @@ export class SessionManager {
       console.error('  ❌ Failed to start Claude:', err);
       this.stopTyping(session);
       await this.mattermost.createPost(`❌ ${err}`, actualThreadId);
-      this.sessions.delete(actualThreadId);
+      this.sessions.delete(session.sessionId);
       return;
     }
 
@@ -1161,7 +1161,7 @@ export class SessionManager {
 
     // Post the question with reaction options
     const reactionOptions = NUMBER_EMOJIS.slice(0, q.options.length);
-    const post = await this.mattermost.createInteractivePost(
+    const post = await session.platform.createInteractivePost(
       message,
       reactionOptions,
       session.threadId
@@ -1193,7 +1193,7 @@ export class SessionManager {
 
     // Update the post to show answer
     try {
-      await this.mattermost.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
+      await session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
     } catch (err) {
       console.error('  ⚠️ Failed to update answered question:', err);
     }
@@ -1244,7 +1244,7 @@ export class SessionManager {
       const statusMessage = isApprove
         ? `✅ **Plan approved** by @${username} - starting implementation...`
         : `❌ **Changes requested** by @${username}`;
-      await this.mattermost.updatePost(postId, statusMessage);
+      await session.platform.updatePost(postId, statusMessage);
     } catch (err) {
       console.error('  ⚠️ Failed to update approval post:', err);
     }
@@ -1270,7 +1270,7 @@ export class SessionManager {
     if (!pending) return;
 
     // Only session owner or globally allowed users can approve
-    if (session.startedBy !== approver && !this.mattermost.isUserAllowed(approver)) {
+    if (session.startedBy !== approver && !session.platform.isUserAllowed(approver)) {
       return;
     }
 
@@ -1282,7 +1282,7 @@ export class SessionManager {
 
     if (isAllow) {
       // Allow this single message
-      await this.mattermost.updatePost(pending.postId,
+      await session.platform.updatePost(pending.postId,
         `✅ Message from @${pending.fromUser} approved by @${approver}`);
       session.claude.sendMessage(pending.originalMessage);
       session.lastActivityAt = new Date();
@@ -1291,7 +1291,7 @@ export class SessionManager {
     } else if (isInvite) {
       // Invite user to session
       session.sessionAllowedUsers.add(pending.fromUser);
-      await this.mattermost.updatePost(pending.postId,
+      await session.platform.updatePost(pending.postId,
         `✅ @${pending.fromUser} invited to session by @${approver}`);
       await this.updateSessionHeader(session);
       session.claude.sendMessage(pending.originalMessage);
@@ -1300,7 +1300,7 @@ export class SessionManager {
       console.log(`  👋 @${pending.fromUser} invited to session by @${approver}`);
     } else if (isDeny) {
       // Deny
-      await this.mattermost.updatePost(pending.postId,
+      await session.platform.updatePost(pending.postId,
         `❌ Message from @${pending.fromUser} denied by @${approver}`);
       console.log(`  ❌ Message from @${pending.fromUser} denied by @${approver}`);
     }
@@ -1464,9 +1464,9 @@ export class SessionManager {
   private startTyping(session: Session): void {
     if (session.typingTimer) return;
     // Send typing immediately, then every 3 seconds
-    this.mattermost.sendTyping(session.threadId);
+    session.platform.sendTyping(session.threadId);
     session.typingTimer = setInterval(() => {
-      this.mattermost.sendTyping(session.threadId);
+      session.platform.sendTyping(session.threadId);
     }, 3000);
   }
 
@@ -1500,7 +1500,7 @@ export class SessionManager {
       const remainder = content.substring(breakPoint).trim();
 
       // Update the current post with the first part
-      await this.mattermost.updatePost(session.currentPostId, firstPart);
+      await session.platform.updatePost(session.currentPostId, firstPart);
 
       // Start a new post for the continuation
       session.currentPostId = null;
@@ -1508,7 +1508,7 @@ export class SessionManager {
 
       // Create the continuation post if there's content
       if (remainder) {
-        const post = await this.mattermost.createPost('*(continued)*\n\n' + remainder, session.threadId);
+        const post = await session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId);
         session.currentPostId = post.id;
         this.registerPost(post.id, session.threadId);
       }
@@ -1522,9 +1522,9 @@ export class SessionManager {
     }
 
     if (session.currentPostId) {
-      await this.mattermost.updatePost(session.currentPostId, content);
+      await session.platform.updatePost(session.currentPostId, content);
     } else {
-      const post = await this.mattermost.createPost(content, session.threadId);
+      const post = await session.platform.createPost(content, session.threadId);
       session.currentPostId = post.id;
       // Register post for reaction routing
       this.registerPost(post.id, session.threadId);
@@ -1561,7 +1561,7 @@ export class SessionManager {
         clearTimeout(session.updateTimer);
         session.updateTimer = null;
       }
-      this.sessions.delete(threadId);
+      this.sessions.delete(session.sessionId);
       return;
     }
 
@@ -1576,7 +1576,7 @@ export class SessionManager {
       }
       // Update persistence with current state before cleanup
       this.persistSession(session);
-      this.sessions.delete(threadId);
+      this.sessions.delete(session.sessionId);
       // Clean up post index
       for (const [postId, tid] of this.postIndex.entries()) {
         if (tid === threadId) {
@@ -1605,7 +1605,7 @@ export class SessionManager {
         clearTimeout(session.updateTimer);
         session.updateTimer = null;
       }
-      this.sessions.delete(threadId);
+      this.sessions.delete(session.sessionId);
       // Post error message but keep persistence
       try {
         await this.mattermost.createPost(
@@ -1632,7 +1632,7 @@ export class SessionManager {
     }
 
     // Clean up session from maps
-    this.sessions.delete(threadId);
+    this.sessions.delete(session.sessionId);
     // Clean up post index entries for this session
     for (const [postId, tid] of this.postIndex.entries()) {
       if (tid === threadId) {
@@ -1743,7 +1743,7 @@ export class SessionManager {
     session.claude.kill();
 
     // Clean up session from maps
-    this.sessions.delete(threadId);
+    this.sessions.delete(session.sessionId);
     for (const [postId, tid] of this.postIndex.entries()) {
       if (tid === threadId) {
         this.postIndex.delete(postId);
@@ -2142,7 +2142,7 @@ export class SessionManager {
     ].join('\n');
 
     try {
-      await this.mattermost.updatePost(session.sessionStartPostId, msg);
+      await session.platform.updatePost(session.sessionStartPostId, msg);
     } catch (err) {
       console.error('  ⚠️ Failed to update session header:', err);
     }
