@@ -2,11 +2,16 @@
 
 ## What This Project Does
 
-This is a Mattermost bot that lets users interact with Claude Code through Mattermost. When someone @mentions the bot in a channel, it spawns a Claude Code CLI session in a configured working directory and streams all output to a Mattermost thread. The user can continue the conversation by replying in the thread.
+This is a multi-platform bot that lets users interact with Claude Code through chat platforms. When someone @mentions the bot in a channel, it spawns a Claude Code CLI session in a configured working directory and streams all output to a thread. The user can continue the conversation by replying in the thread.
+
+**Currently Supported Platforms:**
+- Mattermost (full support)
+- Slack (architecture ready, implementation pending)
 
 **Key Features:**
-- Real-time streaming of Claude responses to Mattermost
-- **Multiple concurrent sessions** - one per Mattermost thread
+- Real-time streaming of Claude responses to chat platforms
+- **Multi-platform support** - connect to multiple Mattermost/Slack instances simultaneously
+- **Multiple concurrent sessions** - one per thread, across all platforms
 - **Session persistence** - sessions resume automatically after bot restart
 - **Session collaboration** - `/invite @user` to temporarily allow users in a session
 - **Message approval** - unauthorized users can request approval for their messages
@@ -63,26 +68,88 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 **MCP Permission Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
-- Each has its own WebSocket to Mattermost
+- Each has its own WebSocket/connection to the platform
 - Posts permission requests to the session's thread
 - Returns allow/deny based on user reaction
 
+## Multi-Platform Support
+
+**Architecture**: claude-threads now supports connecting to multiple chat platforms simultaneously through a platform abstraction layer.
+
+**Currently Supported**:
+- ✅ Mattermost (fully implemented)
+- 🔄 Slack (architecture ready, awaiting implementation)
+
+**Key Concepts**:
+
+1. **Platform Abstraction**: `PlatformClient` interface normalizes differences between platforms
+2. **Composite Session IDs**: Sessions are identified by `"platformId:threadId"` to ensure uniqueness across platforms
+3. **Independent Credentials**: Each platform instance has its own URL, token, and channel configuration
+4. **Per-Platform MCP Servers**: Each session's MCP permission server connects to the correct platform
+
+**Configuration**:
+
+Multi-platform mode uses YAML config (`~/.config/claude-threads/config.yaml`):
+
+```yaml
+version: 1
+workingDir: /home/user/repos/myproject
+chrome: false
+worktreeMode: prompt
+
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    displayName: Main Team
+    url: https://chat.example.com
+    token: ${MM_TOKEN}
+    channelId: abc123
+    botName: claude-code
+    allowedUsers: [alice, bob]
+    skipPermissions: false
+```
+
+Single-platform `.env` files are automatically migrated to multi-platform config with `platformId='default'`.
+
+**See also**: [Multi-Platform Architecture Documentation](docs/MULTI_PLATFORM_ARCHITECTURE.md)
+
 ## Source Files
 
+### Core
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point. CLI parsing with Commander, starts bot, handles shutdown |
-| `src/config.ts` | Loads config from CLI args / .env files, exports Config type |
-| `src/onboarding.ts` | Interactive setup wizard when no config exists |
-| `src/claude/cli.ts` | Spawns Claude CLI with correct flags, configures MCP server |
-| `src/claude/session.ts` | Core logic: handles Claude events, formats for Mattermost, manages state |
+| `src/index.ts` | Entry point. CLI parsing, bot startup, message routing |
+| `src/config.ts` | Legacy config loader (backward compat) |
+| `src/config/migration.ts` | Multi-platform config with auto-migration from .env |
+| `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
+
+### Session Management
+| File | Purpose |
+|------|---------|
+| `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
+| `src/claude/session.ts` | SessionManager: handles Claude events, manages multi-platform sessions |
 | `src/claude/types.ts` | TypeScript types for Claude stream-json events |
-| `src/mattermost/client.ts` | WebSocket connection, API calls, event parsing |
-| `src/mattermost/message-formatter.ts` | Converts Claude output (diffs, code, tasks) to Mattermost markdown |
-| `src/mattermost/types.ts` | Mattermost API types |
-| `src/mcp/permission-server.ts` | MCP server for handling permission prompts via Mattermost reactions |
-| `src/persistence/session-store.ts` | Persists session state to JSON for resume after restart |
-| `.github/workflows/publish.yml` | GitHub Actions workflow for automated npm publishing |
+| `src/persistence/session-store.ts` | Multi-platform session persistence (with v1→v2 migration) |
+
+### Platform Layer
+| File | Purpose |
+|------|---------|
+| `src/platform/client.ts` | PlatformClient interface (abstraction for all platforms) |
+| `src/platform/types.ts` | Normalized types (PlatformPost, PlatformUser, etc.) |
+| `src/platform/formatter.ts` | PlatformFormatter interface (markdown dialects) |
+| `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
+| `src/platform/mattermost/types.ts` | Mattermost-specific types |
+| `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
+| `src/mattermost/*` | Backward compatibility wrappers |
+
+### Utilities
+| File | Purpose |
+|------|---------|
+| `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
+| `src/mattermost/message-formatter.ts` | Formats Claude output (diffs, code, tasks) |
+| `src/mattermost/api.ts` | Shared Mattermost API helpers |
+| `src/mattermost/emoji.ts` | Emoji constants and validators |
+| `.github/workflows/publish.yml` | Automated npm publishing |
 
 ## How the Permission System Works
 
