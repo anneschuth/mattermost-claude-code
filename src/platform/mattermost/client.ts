@@ -1,7 +1,7 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import type { Config } from '../config.js';
-import { wsLogger } from '../utils/logger.js';
+import type { MattermostPlatformConfig } from '../../config/migration.js';
+import { wsLogger } from '../../utils/logger.js';
 import type {
   MattermostWebSocketEvent,
   MattermostPost,
@@ -11,22 +11,28 @@ import type {
   ReactionAddedEventData,
   CreatePostRequest,
   UpdatePostRequest,
+  MattermostFile,
 } from './types.js';
-
-export interface MattermostClientEvents {
-  connected: () => void;
-  disconnected: () => void;
-  error: (error: Error) => void;
-  message: (post: MattermostPost, user: MattermostUser | null) => void;
-  reaction: (reaction: MattermostReaction, user: MattermostUser | null) => void;
-}
+import type {
+  PlatformClient,
+  PlatformUser,
+  PlatformPost,
+  PlatformReaction,
+  PlatformFile,
+} from '../index.js';
+import type { Config } from '../../config.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export class MattermostClient extends EventEmitter {
+export class MattermostClient extends EventEmitter implements PlatformClient {
+  // Platform identity (required by PlatformClient)
+  readonly platformId: string;
+  readonly platformType = 'mattermost' as const;
+  readonly displayName: string;
+
   private ws: WebSocket | null = null;
   private config: Config;
   private reconnectAttempts = 0;
@@ -41,9 +47,77 @@ export class MattermostClient extends EventEmitter {
   private readonly PING_INTERVAL_MS = 30000; // Send ping every 30s
   private readonly PING_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
 
-  constructor(config: Config) {
+  constructor(platformConfig: MattermostPlatformConfig) {
     super();
-    this.config = config;
+    this.platformId = platformConfig.id;
+    this.displayName = platformConfig.displayName;
+
+    // Convert platform config to legacy Config format for internal use
+    this.config = {
+      mattermost: {
+        url: platformConfig.url,
+        token: platformConfig.token,
+        channelId: platformConfig.channelId,
+        botName: platformConfig.botName,
+      },
+      allowedUsers: platformConfig.allowedUsers,
+      skipPermissions: platformConfig.skipPermissions,
+      chrome: false, // Not used in client
+      worktreeMode: 'prompt', // Not used in client
+    };
+  }
+
+  // ============================================================================
+  // Type Normalization (Mattermost → Platform)
+  // ============================================================================
+
+  private normalizePlatformUser(mattermostUser: MattermostUser): PlatformUser {
+    return {
+      id: mattermostUser.id,
+      username: mattermostUser.username,
+      email: mattermostUser.email,
+    };
+  }
+
+  private normalizePlatformPost(mattermostPost: MattermostPost): PlatformPost {
+    // Normalize metadata.files if present
+    const metadata: { files?: PlatformFile[]; [key: string]: unknown } | undefined =
+      mattermostPost.metadata
+        ? {
+            ...mattermostPost.metadata,
+            files: mattermostPost.metadata.files?.map((f: MattermostFile) => this.normalizePlatformFile(f)),
+          }
+        : undefined;
+
+    return {
+      id: mattermostPost.id,
+      platformId: this.platformId,
+      channelId: mattermostPost.channel_id,
+      userId: mattermostPost.user_id,
+      message: mattermostPost.message,
+      rootId: mattermostPost.root_id,
+      createAt: mattermostPost.create_at,
+      metadata,
+    };
+  }
+
+  private normalizePlatformReaction(mattermostReaction: MattermostReaction): PlatformReaction {
+    return {
+      userId: mattermostReaction.user_id,
+      postId: mattermostReaction.post_id,
+      emojiName: mattermostReaction.emoji_name,
+      createAt: mattermostReaction.create_at,
+    };
+  }
+
+  private normalizePlatformFile(mattermostFile: MattermostFile): PlatformFile {
+    return {
+      id: mattermostFile.id,
+      name: mattermostFile.name,
+      size: mattermostFile.size,
+      mimeType: mattermostFile.mime_type,
+      extension: mattermostFile.extension,
+    };
   }
 
   // REST API helper
@@ -71,21 +145,21 @@ export class MattermostClient extends EventEmitter {
   }
 
   // Get current bot user info
-  async getBotUser(): Promise<MattermostUser> {
+  async getBotUser(): Promise<PlatformUser> {
     const user = await this.api<MattermostUser>('GET', '/users/me');
     this.botUserId = user.id;
-    return user;
+    return this.normalizePlatformUser(user);
   }
 
   // Get user by ID (cached)
-  async getUser(userId: string): Promise<MattermostUser | null> {
+  async getUser(userId: string): Promise<PlatformUser | null> {
     if (this.userCache.has(userId)) {
-      return this.userCache.get(userId)!;
+      return this.normalizePlatformUser(this.userCache.get(userId)!);
     }
     try {
       const user = await this.api<MattermostUser>('GET', `/users/${userId}`);
       this.userCache.set(userId, user);
-      return user;
+      return this.normalizePlatformUser(user);
     } catch {
       return null;
     }
@@ -95,22 +169,24 @@ export class MattermostClient extends EventEmitter {
   async createPost(
     message: string,
     threadId?: string
-  ): Promise<MattermostPost> {
+  ): Promise<PlatformPost> {
     const request: CreatePostRequest = {
       channel_id: this.config.mattermost.channelId,
       message,
       root_id: threadId,
     };
-    return this.api<MattermostPost>('POST', '/posts', request);
+    const post = await this.api<MattermostPost>('POST', '/posts', request);
+    return this.normalizePlatformPost(post);
   }
 
   // Update a message (for streaming updates)
-  async updatePost(postId: string, message: string): Promise<MattermostPost> {
+  async updatePost(postId: string, message: string): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
       message,
     };
-    return this.api<MattermostPost>('PUT', `/posts/${postId}`, request);
+    const post = await this.api<MattermostPost>('PUT', `/posts/${postId}`, request);
+    return this.normalizePlatformPost(post);
   }
 
   // Add a reaction to a post
@@ -137,7 +213,7 @@ export class MattermostClient extends EventEmitter {
     message: string,
     reactions: string[],
     threadId?: string
-  ): Promise<MattermostPost> {
+  ): Promise<PlatformPost> {
     const post = await this.createPost(message, threadId);
 
     // Add each reaction option, continuing even if some fail
@@ -170,14 +246,16 @@ export class MattermostClient extends EventEmitter {
   }
 
   // Get file info (metadata)
-  async getFileInfo(fileId: string): Promise<import('./types.js').MattermostFile> {
-    return this.api<import('./types.js').MattermostFile>('GET', `/files/${fileId}/info`);
+  async getFileInfo(fileId: string): Promise<PlatformFile> {
+    const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
+    return this.normalizePlatformFile(file);
   }
 
   // Get a post by ID (used to verify thread still exists on resume)
-  async getPost(postId: string): Promise<MattermostPost | null> {
+  async getPost(postId: string): Promise<PlatformPost | null> {
     try {
-      return await this.api<MattermostPost>('GET', `/posts/${postId}`);
+      const post = await this.api<MattermostPost>('GET', `/posts/${postId}`);
+      return this.normalizePlatformPost(post);
     } catch {
       return null; // Post doesn't exist or was deleted
     }
@@ -261,9 +339,9 @@ export class MattermostClient extends EventEmitter {
         // Only handle messages in our channel
         if (post.channel_id !== this.config.mattermost.channelId) return;
 
-        // Get user info and emit
+        // Get user info and emit (with normalized types)
         this.getUser(post.user_id).then((user) => {
-          this.emit('message', post, user);
+          this.emit('message', this.normalizePlatformPost(post), user);
         });
       } catch (err) {
         wsLogger.debug(`Failed to parse post: ${err}`);
@@ -282,9 +360,9 @@ export class MattermostClient extends EventEmitter {
         // Ignore reactions from ourselves
         if (reaction.user_id === this.botUserId) return;
 
-        // Get user info and emit
+        // Get user info and emit (with normalized types)
         this.getUser(reaction.user_id).then((user) => {
-          this.emit('reaction', reaction, user);
+          this.emit('reaction', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
         wsLogger.debug(`Failed to parse reaction: ${err}`);
