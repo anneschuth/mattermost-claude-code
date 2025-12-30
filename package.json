@@ -55,6 +55,7 @@
     "prompts": "^2.4.2",
     "update-notifier": "^7.3.1",
     "ws": "^8.18.0",
+    "yaml": "^2.8.2",
     "zod": "^4.2.1"
   },
   "devDependencies": {
