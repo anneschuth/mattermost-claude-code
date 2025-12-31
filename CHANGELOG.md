@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.3] - 2025-12-31
+
+### Fixed
+- Build with `--target node` for Node.js compatibility (fixes "__require is not a function" error)
+- Fixed package.json path resolution for bundled builds
+
 ## [0.16.2] - 2025-12-31
 
 ### Fixed
