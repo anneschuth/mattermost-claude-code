@@ -47,6 +47,7 @@ export interface PersistedSession {
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
   // Context prompt support
   pendingContextPrompt?: PersistedContextPrompt; // Waiting for context selection
+  needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
 }
 
 /**

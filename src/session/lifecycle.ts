@@ -326,6 +326,7 @@ export async function resumeSession(
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
     firstPrompt: state.firstPrompt,
+    needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
   };
 
   // Register session
@@ -385,6 +386,20 @@ export async function sendFollowUp(
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
   const content = await ctx.buildMessageContent(message, session.platform, files);
+  const messageText = typeof content === 'string' ? content : message;
+
+  // Check if we need to offer context prompt (e.g., after !cd)
+  if (session.needsContextPromptOnNextMessage) {
+    session.needsContextPromptOnNextMessage = false;
+    const contextOffered = await ctx.offerContextPrompt(session, messageText);
+    if (contextOffered) {
+      // Context prompt was posted, message is queued - don't send directly
+      session.lastActivityAt = new Date();
+      return;
+    }
+    // No thread history or context prompt declined, fall through to send directly
+  }
+
   session.claude.sendMessage(content);
   session.lastActivityAt = new Date();
   ctx.startTyping(session);
