@@ -210,12 +210,11 @@ async function handleExitPlanMode(
   toolUseId: string,
   ctx: EventContext
 ): Promise<void> {
-  // If already approved in this session, send empty tool result to acknowledge
+  // If already approved in this session, do nothing
+  // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
+  // so we can't send another tool_result - just let the CLI handle it
   if (session.planApproved) {
-    if (ctx.debug) console.log('  ↪ Plan already approved, sending acknowledgment');
-    if (session.claude.isRunning()) {
-      session.claude.sendToolResult(toolUseId, 'Plan already approved. Proceeding.');
-    }
+    if (ctx.debug) console.log('  ↪ Plan already approved, letting CLI handle it');
     return;
   }
 
@@ -246,7 +245,9 @@ async function handleExitPlanMode(
   // Register post for reaction routing
   ctx.registerPost(post.id, session.threadId);
 
-  // Track this for reaction handling - include toolUseId for proper response
+  // Track this for reaction handling
+  // Note: toolUseId is stored but not used - Claude Code CLI handles ExitPlanMode internally,
+  // so we send a user message instead of a tool_result when the user approves
   session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
 
   // Stop typing while waiting

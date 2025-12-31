@@ -16,6 +16,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Context is prepended to the initial prompt so Claude understands the conversation history
 
 ### Fixed
+- **Plan mode approval**: Fixed API error "unexpected tool_use_id found in tool_result blocks" when approving plans
+  - Claude Code CLI handles ExitPlanMode internally; changed to send user message instead of duplicate tool_result
+- **Question reactions**: Fixed 2nd+ questions not responding to emoji reactions
+  - Follow-up question posts weren't registered for reaction routing
+- **Question answering**: Fixed duplicate tool_result when answering AskUserQuestion
+  - Claude Code CLI handles AskUserQuestion internally; changed to send user message
 - Session timeout warning showing negative minutes (e.g., "-24min")
 - Warning now fires 5 minutes before timeout instead of after 5 minutes idle
 - Stale sessions are now cleaned from persistence on startup

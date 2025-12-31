@@ -144,6 +144,7 @@ export class SessionManager {
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       updateSessionHeader: (s) => this.updateSessionHeader(s),
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
     };
   }
 

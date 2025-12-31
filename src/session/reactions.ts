@@ -23,6 +23,7 @@ export interface ReactionContext {
   startTyping: (session: Session) => void;
   stopTyping: (session: Session) => void;
   updateSessionHeader: (session: Session) => Promise<void>;
+  registerPost: (postId: string, threadId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,17 +64,19 @@ export async function handleQuestionReaction(
   session.pendingQuestionSet.currentIndex++;
 
   if (session.pendingQuestionSet.currentIndex < questions.length) {
-    // Post next question
+    // Post next question - must register post for reaction routing
     await postCurrentQuestion(session, {
       debug: ctx.debug,
-      registerPost: () => {}, // Will be called by events module
+      registerPost: ctx.registerPost,
       flush: async () => {},
       startTyping: ctx.startTyping,
       stopTyping: ctx.stopTyping,
       appendContent: () => {},
     });
   } else {
-    // All questions answered - send tool result
+    // All questions answered - send user message (NOT tool_result)
+    // Claude Code CLI handles AskUserQuestion internally (generating its own tool_result),
+    // so we can't send another tool_result. Instead, send a user message with answers.
     let answersText = 'Here are my answers:\n';
     for (const q of questions) {
       answersText += `- **${q.header}**: ${q.answer}\n`;
@@ -81,15 +84,12 @@ export async function handleQuestionReaction(
 
     if (ctx.debug) console.log('  ✅ All questions answered');
 
-    // Get the toolUseId before clearing
-    const toolUseId = session.pendingQuestionSet.toolUseId;
-
     // Clear pending questions
     session.pendingQuestionSet = null;
 
-    // Send tool result to Claude (AskUserQuestion expects a tool_result, not a user message)
+    // Send user message to Claude with the answers
     if (session.claude.isRunning()) {
-      session.claude.sendToolResult(toolUseId, answersText);
+      session.claude.sendMessage(answersText);
       ctx.startTyping(session);
     }
   }
@@ -115,7 +115,8 @@ export async function handleApprovalReaction(
 
   if (!isApprove && !isReject) return;
 
-  const { postId, toolUseId } = session.pendingApproval;
+  const { postId } = session.pendingApproval;
+  // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
   const shortId = session.threadId.substring(0, 8);
   console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
@@ -135,12 +136,14 @@ export async function handleApprovalReaction(
     session.planApproved = true;
   }
 
-  // Send tool result to Claude (ExitPlanMode expects a tool_result, not a user message)
+  // Send user message to Claude - NOT a tool_result
+  // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
+  // so we can't send another tool_result. Instead, send a user message to continue.
   if (session.claude.isRunning()) {
-    const response = isApprove
-      ? 'Approved. Please proceed with the implementation.'
+    const message = isApprove
+      ? 'Plan approved! Please proceed with the implementation.'
       : 'Please revise the plan. I would like some changes.';
-    session.claude.sendToolResult(toolUseId, response);
+    session.claude.sendMessage(message);
     ctx.startTyping(session);
   }
 }
