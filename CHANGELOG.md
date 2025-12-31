@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.16.9] - 2025-12-31
+## [0.17.0] - 2025-12-31
+
+### Added
+- **Sticky task list** - Task list now stays at the bottom of the thread
+  - When Claude posts new content, the task list moves below it
+  - When you send a follow-up message, the task list moves below your message
+  - Task list updates in place without visual noise
+  - Mirrors Claude Code CLI behavior where tasks are always at the bottom
 
 ### Fixed
 - **Context prompt after restart**: Context prompt now appears after session restarts (worktree creation, `!cd`)

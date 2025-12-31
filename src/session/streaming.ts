@@ -114,12 +114,77 @@ export function stopTyping(session: Session): void {
 }
 
 /**
+ * Bump the task list to the bottom by reusing its post for new content.
+ *
+ * When we need to create a new post and a task list exists, we:
+ * 1. Update the task list post with the new content (repurposing it)
+ * 2. Create a fresh task list post at the bottom
+ *
+ * This keeps the task list visually at the bottom without deleting messages.
+ *
+ * @param session - The session
+ * @param newContent - Content to put in the repurposed post
+ * @param registerPost - Callback to register post for reaction routing
+ * @returns The post ID that now contains the content (was the task list post)
+ */
+async function bumpTasksToBottomWithContent(
+  session: Session,
+  newContent: string,
+  registerPost: (postId: string, threadId: string) => void
+): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- caller checks tasksPostId exists
+  const oldTasksPostId = session.tasksPostId!;
+  const oldTasksContent = session.lastTasksContent;
+
+  // Repurpose the task list post for the new content
+  await session.platform.updatePost(oldTasksPostId, newContent);
+  registerPost(oldTasksPostId, session.threadId);
+
+  // Create a new task list post at the bottom (if we have content to show)
+  if (oldTasksContent) {
+    const newTasksPost = await session.platform.createPost(oldTasksContent, session.threadId);
+    session.tasksPostId = newTasksPost.id;
+  } else {
+    // No task content to re-post, clear the task post ID
+    session.tasksPostId = null;
+  }
+
+  return oldTasksPostId;
+}
+
+/**
+ * Bump the task list to the bottom of the thread.
+ *
+ * Call this when a user sends a follow-up message to keep the task list
+ * below user messages. Deletes the old task post and creates a new one.
+ *
+ * @param session - The session
+ */
+export async function bumpTasksToBottom(session: Session): Promise<void> {
+  if (!session.tasksPostId || !session.lastTasksContent) {
+    return; // No task list to bump
+  }
+
+  try {
+    // Delete the old task post
+    await session.platform.deletePost(session.tasksPostId);
+
+    // Create a new task post at the bottom
+    const newPost = await session.platform.createPost(session.lastTasksContent, session.threadId);
+    session.tasksPostId = newPost.id;
+  } catch (err) {
+    console.error('  ⚠️ Failed to bump tasks to bottom:', err);
+  }
+}
+
+/**
  * Flush pending content to the platform.
  *
  * Handles:
  * - Message length limits (splits into multiple posts if needed)
  * - Creating vs updating posts
  * - Post registration for reaction routing
+ * - Keeping task list at the bottom (sticky tasks)
  *
  * @param session - The session to flush
  * @param registerPost - Callback to register post for reaction routing
@@ -158,9 +223,15 @@ export async function flush(
 
     // Create the continuation post if there's content
     if (remainder) {
-      const post = await session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId);
-      session.currentPostId = post.id;
-      registerPost(post.id, session.threadId);
+      // If we have a task list, reuse its post and bump it to the bottom
+      if (session.tasksPostId && session.lastTasksContent) {
+        const postId = await bumpTasksToBottomWithContent(session, '*(continued)*\n\n' + remainder, registerPost);
+        session.currentPostId = postId;
+      } else {
+        const post = await session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId);
+        session.currentPostId = post.id;
+        registerPost(post.id, session.threadId);
+      }
     }
     return;
   }
@@ -174,9 +245,16 @@ export async function flush(
   if (session.currentPostId) {
     await session.platform.updatePost(session.currentPostId, content);
   } else {
-    const post = await session.platform.createPost(content, session.threadId);
-    session.currentPostId = post.id;
-    // Register post for reaction routing
-    registerPost(post.id, session.threadId);
+    // Need to create a new post
+    // If we have a task list, reuse its post and bump it to the bottom
+    if (session.tasksPostId && session.lastTasksContent) {
+      const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
+      session.currentPostId = postId;
+    } else {
+      const post = await session.platform.createPost(content, session.threadId);
+      session.currentPostId = post.id;
+      // Register post for reaction routing
+      registerPost(post.id, session.threadId);
+    }
   }
 }

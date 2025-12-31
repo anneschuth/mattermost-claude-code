@@ -275,7 +275,9 @@ async function handleTodoWrite(
     // Clear tasks display if empty
     if (session.tasksPostId) {
       try {
-        await session.platform.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
+        const completedMsg = '📋 ~~Tasks~~ *(completed)*';
+        await session.platform.updatePost(session.tasksPostId, completedMsg);
+        session.lastTasksContent = completedMsg;
       } catch (err) {
         console.error('  ⚠️ Failed to update tasks:', err);
       }
@@ -327,6 +329,9 @@ async function handleTodoWrite(
     }
     message += `${icon} ${text}\n`;
   }
+
+  // Save content for sticky task list feature
+  session.lastTasksContent = message;
 
   // Update or create tasks post
   try {
