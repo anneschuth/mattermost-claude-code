@@ -4,7 +4,7 @@
  * Handles permission requests via Mattermost API and WebSocket.
  */
 
-import WebSocket from 'ws';
+// Native WebSocket - no import needed in Bun
 import type { PermissionApi, PermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
@@ -107,7 +107,7 @@ class MattermostPermissionApi implements PermissionApi {
         }
       }, timeoutMs);
 
-      ws.on('open', () => {
+      ws.onopen = () => {
         mcpLogger.debug('WebSocket connected, sending auth...');
         ws.send(
           JSON.stringify({
@@ -116,20 +116,21 @@ class MattermostPermissionApi implements PermissionApi {
             data: { token: this.config.token },
           })
         );
-      });
+      };
 
-      ws.on('message', async (data: WebSocket.Data) => {
+      ws.onmessage = (event) => {
         if (resolved) return;
 
         try {
-          const event = JSON.parse(data.toString());
-          mcpLogger.debug(`WebSocket event: ${event.event}`);
+          const data = typeof event.data === 'string' ? event.data : event.data.toString();
+          const wsEvent = JSON.parse(data);
+          mcpLogger.debug(`WebSocket event: ${wsEvent.event}`);
 
-          if (event.event === 'reaction_added') {
+          if (wsEvent.event === 'reaction_added') {
             // Mattermost sends reaction as JSON string
-            const reaction = typeof event.data.reaction === 'string'
-              ? JSON.parse(event.data.reaction)
-              : event.data.reaction;
+            const reaction = typeof wsEvent.data.reaction === 'string'
+              ? JSON.parse(wsEvent.data.reaction)
+              : wsEvent.data.reaction;
 
             // Must be on our post
             if (reaction.post_id !== postId) return;
@@ -153,25 +154,25 @@ class MattermostPermissionApi implements PermissionApi {
         } catch (err) {
           mcpLogger.debug(`Error parsing WebSocket message: ${err}`);
         }
-      });
+      };
 
-      ws.on('error', (error) => {
-        mcpLogger.error(`WebSocket error: ${error.message}`);
+      ws.onerror = (event) => {
+        mcpLogger.error(`WebSocket error: ${event}`);
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
           resolve(null);
         }
-      });
+      };
 
-      ws.on('close', () => {
+      ws.onclose = () => {
         mcpLogger.debug('WebSocket closed');
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);
           resolve(null);
         }
-      });
+      };
     });
   }
 }

@@ -1,5 +1,5 @@
 import prompts from 'prompts';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import {
   CONFIG_PATH,
   saveConfig,
@@ -8,8 +8,6 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
 } from './config/migration.js';
-import YAML from 'yaml';
-import { readFileSync } from 'fs';
 
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
@@ -32,7 +30,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   if (reconfigure && existsSync(CONFIG_PATH)) {
     try {
       const content = readFileSync(CONFIG_PATH, 'utf-8');
-      existingConfig = YAML.parse(content) as NewConfig;
+      existingConfig = Bun.YAML.parse(content) as NewConfig;
       console.log(dim('  Reconfiguring existing setup.'));
     } catch {
       console.log(dim('  Could not load existing config, starting fresh.'));

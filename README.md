@@ -9,7 +9,7 @@
 [![npm version](https://img.shields.io/npm/v/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![npm downloads](https://img.shields.io/npm/dm/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.2.21-black.svg)](https://bun.sh/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -51,7 +51,7 @@ Runs entirely on your machine - only **outbound** connections to Mattermost. No 
 ## Prerequisites
 
 1. **Claude Code CLI** installed and authenticated (`claude --version`)
-2. **Node.js 18+**
+2. **Bun 1.2.21+** (`bun --version`) - [Install Bun](https://bun.sh/)
 3. **Mattermost bot account** with a personal access token
 
 ## Quick Start
@@ -415,4 +415,4 @@ The bot needs permissions to:
 
 ## License
 
-MIT
+Apache-2.0

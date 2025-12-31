@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+// Native WebSocket - no import needed in Bun
 import { EventEmitter } from 'events';
 import type { MattermostPlatformConfig } from '../../config/migration.js';
 import { wsLogger } from '../../utils/logger.js';
@@ -47,11 +47,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
 
-  // Heartbeat to detect dead connections
-  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  // Heartbeat to detect dead connections (using regular messages since browser WebSocket has no ping/pong)
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   private lastMessageAt = Date.now();
-  private readonly PING_INTERVAL_MS = 30000; // Send ping every 30s
-  private readonly PING_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
+  private readonly HEARTBEAT_INTERVAL_MS = 30000; // Check every 30s
+  private readonly HEARTBEAT_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
 
   constructor(platformConfig: MattermostPlatformConfig) {
     super();
@@ -272,7 +272,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(wsUrl);
 
-      this.ws.on('open', () => {
+      this.ws.onopen = () => {
         wsLogger.debug('WebSocket connected');
         // Authenticate
         if (this.ws) {
@@ -284,16 +284,17 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             })
           );
         }
-      });
+      };
 
-      this.ws.on('message', (data) => {
+      this.ws.onmessage = (event) => {
         this.lastMessageAt = Date.now(); // Track activity for heartbeat
         try {
-          const event = JSON.parse(data.toString()) as MattermostWebSocketEvent;
-          this.handleEvent(event);
+          const data = typeof event.data === 'string' ? event.data : event.data.toString();
+          const wsEvent = JSON.parse(data) as MattermostWebSocketEvent;
+          this.handleEvent(wsEvent);
 
           // Authentication success
-          if (event.event === 'hello') {
+          if (wsEvent.event === 'hello') {
             this.reconnectAttempts = 0;
             this.startHeartbeat();
             this.emit('connected');
@@ -302,25 +303,20 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         } catch (err) {
           wsLogger.debug(`Failed to parse message: ${err}`);
         }
-      });
+      };
 
-      this.ws.on('close', () => {
+      this.ws.onclose = () => {
         wsLogger.debug('WebSocket disconnected');
         this.stopHeartbeat();
         this.emit('disconnected');
         this.scheduleReconnect();
-      });
+      };
 
-      this.ws.on('error', (err) => {
-        wsLogger.debug(`WebSocket error: ${err}`);
-        this.emit('error', err);
-        reject(err);
-      });
-
-      this.ws.on('pong', () => {
-        this.lastMessageAt = Date.now(); // Pong received, connection is alive
-        wsLogger.debug('Pong received');
-      });
+      this.ws.onerror = (event) => {
+        wsLogger.debug(`WebSocket error: ${event}`);
+        this.emit('error', event);
+        reject(event);
+      };
     });
   }
 
@@ -391,31 +387,28 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     this.stopHeartbeat(); // Clear any existing
     this.lastMessageAt = Date.now();
 
-    this.pingInterval = setInterval(() => {
+    this.heartbeatInterval = setInterval(() => {
       const silentFor = Date.now() - this.lastMessageAt;
 
       // If no message received for too long, connection is dead
-      if (silentFor > this.PING_TIMEOUT_MS) {
+      if (silentFor > this.HEARTBEAT_TIMEOUT_MS) {
         console.log(`  💔 Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
         this.stopHeartbeat();
         if (this.ws) {
-          this.ws.terminate(); // Force close (triggers reconnect via 'close' event)
+          this.ws.close(); // Force close (triggers reconnect via 'close' event)
         }
         return;
       }
 
-      // Send ping to keep connection alive and verify it's working
-      if (this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.ping();
-        wsLogger.debug(`Ping sent (last activity ${Math.round(silentFor / 1000)}s ago)`);
-      }
-    }, this.PING_INTERVAL_MS);
+      // Send a typing indicator as a keepalive (Mattermost will respond with activity)
+      wsLogger.debug(`Heartbeat check (last activity ${Math.round(silentFor / 1000)}s ago)`);
+    }, this.HEARTBEAT_INTERVAL_MS);
   }
 
   private stopHeartbeat(): void {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
     }
   }
 
