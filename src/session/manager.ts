@@ -369,6 +369,13 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   async initialize(): Promise<void> {
+    // Clean up stale sessions that timed out while bot was down
+    // Use 2x timeout to be generous (bot might have been down for a while)
+    const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
+    if (staleIds.length > 0) {
+      console.log(`  🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
+    }
+
     const persisted = this.sessionStore.load();
     if (persisted.size === 0) return;
 

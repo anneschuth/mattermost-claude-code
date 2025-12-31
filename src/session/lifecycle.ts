@@ -588,9 +588,12 @@ export function cleanupIdleSessions(
       continue;
     }
 
-    // Check for warning threshold
-    if (idleMs > warningMs && !session.timeoutWarningPosted) {
-      const remainingMins = Math.round((timeoutMs - idleMs) / 60000);
+    // Check for warning threshold (warn when X minutes before timeout)
+    // warningMs = how long before timeout to warn (e.g., 5 min = 300000)
+    // So warn when: idleMs > (timeoutMs - warningMs)
+    const warningThresholdMs = timeoutMs - warningMs;
+    if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
+      const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       session.platform.createPost(
         `⏰ **Session idle** - will timeout in ~${remainingMins} minutes without activity`,
         session.threadId
