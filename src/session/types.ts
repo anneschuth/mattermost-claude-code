@@ -119,6 +119,7 @@ export interface Session {
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
+  firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
 }
 
 // =============================================================================

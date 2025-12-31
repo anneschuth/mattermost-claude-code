@@ -348,6 +348,7 @@ export class SessionManager {
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
+      firstPrompt: session.firstPrompt,
     };
     this.sessionStore.save(session.sessionId, state);
   }

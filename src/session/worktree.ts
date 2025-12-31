@@ -314,10 +314,17 @@ export async function createAndSwitchToWorktree(
     session.timeoutWarningPosted = false;
     options.persistSession(session);
 
-    // If there was a queued prompt (from initial session start), send it now
-    if (wasPending && queuedPrompt && session.claude.isRunning()) {
-      session.claude.sendMessage(queuedPrompt);
-      options.startTyping(session);
+    // Send the initial prompt to the new Claude CLI
+    // - If wasPending (worktree prompt at session start): use queuedPrompt
+    // - Otherwise (mid-session worktree): use firstPrompt
+    if (session.claude.isRunning()) {
+      if (wasPending && queuedPrompt) {
+        session.claude.sendMessage(queuedPrompt);
+        options.startTyping(session);
+      } else if (!wasPending && session.firstPrompt) {
+        session.claude.sendMessage(session.firstPrompt);
+        options.startTyping(session);
+      }
     }
 
     console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);

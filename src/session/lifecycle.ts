@@ -189,6 +189,9 @@ export async function startSession(
     return;
   }
 
+  // Store the first prompt for potential replay after mid-session worktree creation
+  session.firstPrompt = options.prompt;
+
   // Check if we should prompt for worktree
   const shouldPrompt = await ctx.shouldPromptForWorktree(session);
   if (shouldPrompt) {
@@ -290,6 +293,7 @@ export async function resumeSession(
     pendingWorktreePrompt: state.pendingWorktreePrompt,
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
+    firstPrompt: state.firstPrompt,
   };
 
   // Register session
