@@ -1,6 +1,6 @@
 {
   "name": "claude-threads",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Share Claude Code sessions live in a Mattermost channel with interactive features",
   "main": "dist/index.js",
   "type": "module",
@@ -9,12 +9,12 @@
     "claude-threads-mcp": "./dist/mcp/permission-server.js"
   },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun && bun build src/mcp/permission-server.ts --outdir dist/mcp --target bun",
+    "start": "bun dist/index.js",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",
@@ -28,7 +28,8 @@
     "ai",
     "cli",
     "anthropic",
-    "chat"
+    "chat",
+    "bun"
   ],
   "author": "Anne Schuth",
   "license": "Apache-2.0",
@@ -54,33 +55,28 @@
     "prompts": "^2.4.2",
     "semver": "^7.7.3",
     "update-notifier": "^7.3.1",
-    "ws": "^8.18.0",
-    "yaml": "^2.8.2",
-    "zod": "^4.2.1"
+    "zod": "4.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@types/bun": "latest",
     "@types/node": "^25.0.3",
     "@types/prompts": "^2.4.9",
     "@types/semver": "^7.7.1",
     "@types/update-notifier": "^6.0.8",
-    "@types/ws": "^8.5.13",
-    "@vitest/coverage-v8": "^4.0.16",
     "eslint": "^9.39.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "typescript-eslint": "^8.50.1",
-    "vitest": "^4.0.16"
+    "typescript-eslint": "^8.50.1"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "bun": ">=1.2.21"
   },
   "lint-staged": {
     "*.ts": [
       "eslint --fix",
-      "vitest related --run"
+      "bun test --bail"
     ]
   }
 }

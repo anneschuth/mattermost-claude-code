@@ -1,5 +1,4 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import YAML from 'yaml';
 import { resolve, dirname } from 'path';
 import { homedir } from 'os';
 
@@ -58,7 +57,7 @@ export interface SlackPlatformConfig extends PlatformInstanceConfig {
 export function loadConfigWithMigration(): NewConfig | null {
   if (existsSync(CONFIG_PATH)) {
     const content = readFileSync(CONFIG_PATH, 'utf-8');
-    return YAML.parse(content) as NewConfig;
+    return Bun.YAML.parse(content) as NewConfig;
   }
   return null; // No config found
 }
@@ -71,7 +70,7 @@ export function saveConfig(config: NewConfig): void {
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });
   }
-  writeFileSync(CONFIG_PATH, YAML.stringify(config), 'utf-8');
+  writeFileSync(CONFIG_PATH, Bun.YAML.stringify(config), 'utf-8');
 }
 
 /**

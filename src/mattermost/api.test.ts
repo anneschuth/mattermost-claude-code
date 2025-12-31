@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, mock, beforeEach, afterEach, spyOn } from 'bun:test';
 import {
   mattermostApi,
   getMe,
@@ -16,21 +16,25 @@ const mockConfig: MattermostApiConfig = {
   token: 'test-token',
 };
 
-describe('mattermostApi', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
+// Save original fetch to restore after tests
+const originalFetch = globalThis.fetch;
 
+// Helper to create a mock fetch that satisfies TypeScript
+const createMockFetch = (impl: () => Promise<Partial<Response>>) => {
+  return mock(impl) as unknown as typeof fetch;
+};
+
+describe('mattermostApi', () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('adds authorization header', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ id: '123' }),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'GET', '/users/me');
 
@@ -45,11 +49,11 @@ describe('mattermostApi', () => {
   });
 
   it('includes Content-Type header', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'POST', '/posts', { message: 'test' });
 
@@ -64,11 +68,11 @@ describe('mattermostApi', () => {
   });
 
   it('stringifies body for POST requests', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'POST', '/posts', { message: 'hello' });
 
@@ -81,14 +85,11 @@ describe('mattermostApi', () => {
   });
 
   it('throws on non-ok response', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        text: () => Promise.resolve('Unauthorized'),
-      })
-    );
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
+      ok: false,
+      status: 401,
+      text: () => Promise.resolve('Unauthorized'),
+    }));
 
     await expect(mattermostApi(mockConfig, 'GET', '/users/me')).rejects.toThrow(
       'Mattermost API error 401'
@@ -96,14 +97,11 @@ describe('mattermostApi', () => {
   });
 
   it('includes error details in thrown error', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 403,
-        text: () => Promise.resolve('Access denied'),
-      })
-    );
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
+      ok: false,
+      status: 403,
+      text: () => Promise.resolve('Access denied'),
+    }));
 
     await expect(mattermostApi(mockConfig, 'GET', '/users/me')).rejects.toThrow(
       'Access denied'
@@ -112,23 +110,16 @@ describe('mattermostApi', () => {
 });
 
 describe('getMe', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('returns the current user', async () => {
     const mockUser = { id: 'bot123', username: 'bot' };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockUser),
-      })
-    );
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(mockUser),
+    }));
 
     const result = await getMe(mockConfig);
 
@@ -137,23 +128,16 @@ describe('getMe', () => {
 });
 
 describe('getUser', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('returns user when found', async () => {
     const mockUser = { id: 'user123', username: 'testuser' };
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockUser),
-      })
-    );
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(mockUser),
+    }));
 
     const result = await getUser(mockConfig, 'user123');
 
@@ -161,14 +145,11 @@ describe('getUser', () => {
   });
 
   it('returns null when user not found', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        text: () => Promise.resolve('Not found'),
-      })
-    );
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
+      ok: false,
+      status: 404,
+      text: () => Promise.resolve('Not found'),
+    }));
 
     const result = await getUser(mockConfig, 'nonexistent');
 
@@ -177,21 +158,17 @@ describe('getUser', () => {
 });
 
 describe('createPost', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('creates a post with correct parameters', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await createPost(mockConfig, 'channel1', 'Hello');
 
@@ -209,11 +186,11 @@ describe('createPost', () => {
   });
 
   it('includes root_id for thread replies', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await createPost(mockConfig, 'channel1', 'Reply', 'thread123');
 
@@ -231,20 +208,16 @@ describe('createPost', () => {
 });
 
 describe('updatePost', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('updates a post with correct parameters', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ id: 'post123', message: 'Updated' }),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await updatePost(mockConfig, 'post123', 'Updated');
 
@@ -262,20 +235,16 @@ describe('updatePost', () => {
 });
 
 describe('addReaction', () => {
-  beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-  });
-
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it('adds a reaction with correct parameters', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await addReaction(mockConfig, 'post123', 'bot123', '+1');
 
@@ -312,25 +281,24 @@ describe('isUserAllowed', () => {
 });
 
 describe('createInteractivePost', () => {
-  let consoleSpy: ReturnType<typeof vi.spyOn>;
+  let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    vi.stubGlobal('fetch', vi.fn());
-    consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
     consoleSpy.mockRestore();
   });
 
   it('creates a post and adds reactions', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
       mockConfig,
@@ -348,11 +316,11 @@ describe('createInteractivePost', () => {
 
   it('creates post in a thread when rootId is provided', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Reply' };
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await createInteractivePost(
       mockConfig,
@@ -380,30 +348,30 @@ describe('createInteractivePost', () => {
   it('continues adding reactions even if one fails', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
     let callCount = 0;
-    const mockFetch = vi.fn().mockImplementation(() => {
+    const mockFetch = mock(() => {
       callCount++;
       if (callCount === 1) {
         // createPost succeeds
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve(mockPost),
-        });
+        } as Response);
       } else if (callCount === 2) {
         // First reaction fails
         return Promise.resolve({
           ok: false,
           status: 500,
           text: () => Promise.resolve('Server error'),
-        });
+        } as Response);
       } else {
         // Second reaction succeeds
         return Promise.resolve({
           ok: true,
           json: () => Promise.resolve({}),
-        });
+        } as Response);
       }
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }) as unknown as typeof fetch;
+    globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
       mockConfig,
@@ -427,11 +395,11 @@ describe('createInteractivePost', () => {
 
   it('returns the post even with no reactions', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
       mockConfig,
@@ -449,11 +417,11 @@ describe('createInteractivePost', () => {
 
   it('adds reactions in the correct order', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = vi.fn().mockResolvedValue({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    });
-    vi.stubGlobal('fetch', mockFetch);
+    }));
+    globalThis.fetch = mockFetch;
 
     await createInteractivePost(
       mockConfig,

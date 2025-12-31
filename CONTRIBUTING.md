@@ -7,23 +7,25 @@ Contributions are welcome! Here's how to help:
 ```bash
 git clone https://github.com/anneschuth/claude-threads.git
 cd claude-threads
-npm install
-npm run dev
+bun install
+bun run dev
 ```
 
 ## Development
 
-- `npm run dev` - Watch mode for development
-- `npm run build` - Build for production
-- `npm test` - Run tests
-- `npm run lint` - Check code style
+Requires [Bun](https://bun.sh/) 1.2.21+.
+
+- `bun run dev` - Watch mode for development
+- `bun run build` - Build for production
+- `bun test` - Run tests
+- `bun run lint` - Check code style
 
 ## Pull Requests
 
 1. Fork the repo and create your branch from `main`
 2. Make your changes
-3. Ensure tests pass (`npm test`)
-4. Ensure linting passes (`npm run lint`)
+3. Ensure tests pass (`bun test`)
+4. Ensure linting passes (`bun run lint`)
 5. Submit a pull request
 
 ## Reporting Bugs

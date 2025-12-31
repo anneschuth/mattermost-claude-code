@@ -212,31 +212,31 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 ## Development Commands
 
 ```bash
-npm install          # Install dependencies
-npm run build        # Compile TypeScript to dist/
-npm run dev          # Run from source with tsx watch
-npm start            # Run compiled version
-npm test             # Run tests (125 tests)
-npm run lint         # Run ESLint
+bun install          # Install dependencies
+bun run build        # Compile TypeScript to dist/
+bun run dev          # Run from source with watch mode
+bun start            # Run compiled version
+bun test             # Run tests (125 tests)
+bun run lint         # Run ESLint
 ```
 
 ## Testing Locally
 
 1. Create config: `~/.config/claude-threads/config.yaml` (or run `claude-threads` for interactive setup)
-2. Build: `npm run build`
-3. Run: `npm start` (or `DEBUG=1 npm start` for verbose output)
+2. Build: `bun run build`
+3. Run: `bun start` (or `DEBUG=1 bun start` for verbose output)
 4. In Mattermost, @mention the bot: `@botname write "hello" to test.txt`
 5. Watch the permission prompt appear, react with 👍
 6. Verify file was created
 
 ## Publishing a New Version
 
-Releases are automated via GitHub Actions. When you create a GitHub release, it automatically publishes to npm.
+Releases are automated via GitHub Actions. When you create a GitHub release, it automatically publishes to the npm registry.
 
 **IMPORTANT: Always test locally before pushing!**
 ```bash
 # 0. Build and run locally to test
-npm run build && npm start
+bun run build && bun start
 # Test in Mattermost: https://digilab.overheid.nl/chat/digilab/channels/annes-claude-code-sessies
 # Kill the server when done testing (Ctrl+C)
 ```
@@ -248,9 +248,9 @@ npm run build && npm start
 git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z"
 
 # 3. Bump version (this commits and creates a git tag)
-npm version patch   # 0.2.1 → 0.2.2
-npm version minor   # 0.2.1 → 0.3.0
-npm version major   # 0.2.1 → 1.0.0
+bun version patch   # 0.2.1 → 0.2.2
+bun version minor   # 0.2.1 → 0.3.0
+bun version major   # 0.2.1 → 1.0.0
 
 # 4. Push to GitHub with tags
 git push && git push --tags
@@ -261,7 +261,7 @@ gh release create v0.x.x --title "v0.x.x" --generate-notes
 
 **GitHub Actions Workflow:** `.github/workflows/publish.yml`
 - Triggered on: GitHub release published
-- Builds TypeScript and publishes to npm
+- Builds TypeScript and publishes to the npm registry
 - Requires `NPM_TOKEN` secret in repository settings
 
 **⚠️ IMPORTANT: NEVER modify the workflow trigger!**
@@ -270,7 +270,7 @@ gh release create v0.x.x --title "v0.x.x" --generate-notes
 - The user creates releases manually via `gh release create`
 - This is the preferred release workflow - do not change it
 
-**npm Token Setup (already configured):**
+**Token Setup (already configured):**
 - Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
 - To update: https://github.com/anneschuth/claude-threads/settings/secrets/actions
 
@@ -329,7 +329,7 @@ When testing a specific fix:
 - Check `src/claude/cli.ts` for the exact format
 
 ### "TypeScript build errors"
-- Run `npm install` to ensure dependencies are up to date
+- Run `bun install` to ensure dependencies are up to date
 - Check for type mismatches in event handling
 
 ## Debugging with Claude Code History

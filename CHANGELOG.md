@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2025-12-31
+
+### Changed
+- **Runtime**: Migrated from Node.js to Bun runtime for 5-8x faster startup
+- **WebSocket**: Replaced `ws` package with native Bun WebSocket (browser-style API)
+- **YAML**: Replaced `yaml` package with native `Bun.YAML`
+- **Testing**: Replaced Vitest with native `bun test`
+- **CI/CD**: Updated GitHub Actions to use Bun
+
+### Removed
+- Node.js dependency - **Bun 1.2.21+ is now required**
+- Dependencies: `ws`, `yaml`, `tsx`, `vitest`, `@vitest/coverage-v8`
+
+### Developer Experience
+- ~2x faster test execution with `bun test`
+- ~7-10x faster CI package installs
+- Native TypeScript execution without transpilation
+
 ## [0.15.0] - 2025-12-30
 
 ### Changed

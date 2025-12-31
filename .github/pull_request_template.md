@@ -13,6 +13,6 @@ How was this tested?
 
 ## Checklist
 
-- [ ] Tests pass (`npm test`)
-- [ ] Linting passes (`npm run lint`)
+- [ ] Tests pass (`bun test`)
+- [ ] Linting passes (`bun run lint`)
 - [ ] Documentation updated (if needed)
