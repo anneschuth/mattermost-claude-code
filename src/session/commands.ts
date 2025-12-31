@@ -36,6 +36,7 @@ export interface CommandContext {
   persistSession: (session: Session) => void;
   killSession: (threadId: string) => void;
   registerPost: (postId: string, threadId: string) => void;
+  offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +197,10 @@ export async function changeDirectory(
   // Update activity
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
+
+  // Mark session to offer context prompt on next message
+  // This allows the user to include thread history after directory change
+  session.needsContextPromptOnNextMessage = true;
 
   // Persist the updated session state
   ctx.persistSession(session);

@@ -140,7 +140,7 @@ export async function handleWorktreeSkip(
   session: Session,
   username: string,
   persistSession: (session: Session) => void,
-  startTyping: (session: Session) => void
+  offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>
 ): Promise<void> {
   if (!session.pendingWorktreePrompt) return;
 
@@ -168,10 +168,9 @@ export async function handleWorktreeSkip(
   // Persist updated state
   persistSession(session);
 
-  // Now send the queued message to Claude
+  // Now send the queued message to Claude (with context prompt if thread has history)
   if (queuedPrompt && session.claude.isRunning()) {
-    session.claude.sendMessage(queuedPrompt);
-    startTyping(session);
+    await offerContextPrompt(session, queuedPrompt);
   }
 }
 
@@ -192,6 +191,7 @@ export async function createAndSwitchToWorktree(
     persistSession: (session: Session) => void;
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
+    offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
   }
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
@@ -317,13 +317,12 @@ export async function createAndSwitchToWorktree(
     // Send the initial prompt to the new Claude CLI
     // - If wasPending (worktree prompt at session start): use queuedPrompt
     // - Otherwise (mid-session worktree): use firstPrompt
+    // Use offerContextPrompt to allow user to include thread history
     if (session.claude.isRunning()) {
       if (wasPending && queuedPrompt) {
-        session.claude.sendMessage(queuedPrompt);
-        options.startTyping(session);
+        await options.offerContextPrompt(session, queuedPrompt);
       } else if (!wasPending && session.firstPrompt) {
-        session.claude.sendMessage(session.firstPrompt);
-        options.startTyping(session);
+        await options.offerContextPrompt(session, session.firstPrompt);
       }
     }
 

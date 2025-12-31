@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.9] - 2025-12-31
+
+### Fixed
+- **Context prompt after restart**: Context prompt now appears after session restarts (worktree creation, `!cd`)
+  - Previously, after worktree creation or directory change, the context prompt was skipped
+  - Now users can include thread history when Claude restarts in a new directory
+  - Added `needsContextPromptOnNextMessage` flag for deferred context prompt (after `!cd`)
+
 ## [0.16.8] - 2025-12-31
 
 ### Fixed

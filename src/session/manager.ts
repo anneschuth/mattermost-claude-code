@@ -161,6 +161,7 @@ export class SessionManager {
       persistSession: (s) => this.persistSession(s),
       killSession: (tid) => this.killSession(tid),
       registerPost: (pid, tid) => this.registerPost(pid, tid),
+      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
     };
   }
 
@@ -217,7 +218,7 @@ export class SessionManager {
         session,
         username,
         (s) => this.persistSession(s),
-        (s) => this.startTyping(s)
+        (s, q) => this.offerContextPrompt(s, q)
       );
       return;
     }
@@ -499,6 +500,7 @@ export class SessionManager {
       queuedPrompt: session.queuedPrompt,
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: persistedContextPrompt,
+      needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -673,7 +675,7 @@ export class SessionManager {
       session,
       username,
       (s) => this.persistSession(s),
-      (s) => this.startTyping(s)
+      (s, q) => this.offerContextPrompt(s, q)
     );
   }
 
@@ -690,6 +692,7 @@ export class SessionManager {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
+      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
     });
   }
 
