@@ -25,4 +25,5 @@ export type {
   CreatePostRequest,
   UpdatePostRequest,
   AddReactionRequest,
+  ThreadMessage,
 } from './types.js';

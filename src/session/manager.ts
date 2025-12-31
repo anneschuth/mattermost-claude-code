@@ -12,7 +12,7 @@
 
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
-import { SessionStore, PersistedSession } from '../persistence/session-store.js';
+import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { WorktreeMode } from '../config.js';
 import {
   isCancelEmoji,
@@ -26,6 +26,7 @@ import * as reactions from './reactions.js';
 import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
+import * as contextPrompt from './context-prompt.js';
 import type { Session } from './types.js';
 
 // Import constants for internal use
@@ -122,6 +123,7 @@ export class SessionManager {
       shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
+      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
     };
   }
 
@@ -219,6 +221,12 @@ export class SessionManager {
       return;
     }
 
+    // Handle context prompt reactions
+    if (session.pendingContextPrompt?.postId === postId) {
+      await this.handleContextPromptReaction(session, emojiName, username);
+      return;
+    }
+
     // Handle cancel/escape reactions on session start post
     if (session.sessionStartPostId === postId) {
       if (isCancelEmoji(emojiName)) {
@@ -248,6 +256,134 @@ export class SessionManager {
       await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getReactionContext());
       return;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Context Prompt Handling
+  // ---------------------------------------------------------------------------
+
+  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
+    if (!session.pendingContextPrompt) return;
+
+    const selection = contextPrompt.getContextSelectionFromReaction(
+      emojiName,
+      session.pendingContextPrompt.availableOptions
+    );
+    if (selection === null) return; // Not a valid context selection reaction
+
+    const pending = session.pendingContextPrompt;
+
+    // Clear the timeout
+    contextPrompt.clearContextPromptTimeout(pending);
+
+    // Update the post to show selection
+    await contextPrompt.updateContextPromptPost(session, pending.postId, selection, username);
+
+    // Get the queued prompt
+    const queuedPrompt = pending.queuedPrompt;
+
+    // Clear pending context prompt
+    session.pendingContextPrompt = undefined;
+
+    // Build message with or without context
+    let messageToSend = queuedPrompt;
+    if (selection > 0) {
+      const messages = await contextPrompt.getThreadMessagesForContext(session, selection, pending.postId);
+      if (messages.length > 0) {
+        const contextPrefix = contextPrompt.formatContextForClaude(messages);
+        messageToSend = contextPrefix + queuedPrompt;
+      }
+    }
+
+    // Send the message to Claude
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(messageToSend);
+      this.startTyping(session);
+    }
+
+    // Persist updated state
+    this.persistSession(session);
+
+    if (this.debug) {
+      const shortId = session.threadId.substring(0, 8);
+      console.log(`  🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
+    }
+  }
+
+  private async handleContextPromptTimeout(session: Session): Promise<void> {
+    if (!session.pendingContextPrompt) return;
+
+    const pending = session.pendingContextPrompt;
+
+    // Update the post to show timeout
+    await contextPrompt.updateContextPromptPost(session, pending.postId, 'timeout');
+
+    // Get the queued prompt
+    const queuedPrompt = pending.queuedPrompt;
+
+    // Clear pending context prompt
+    session.pendingContextPrompt = undefined;
+
+    // Send the message without context
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(queuedPrompt);
+      this.startTyping(session);
+    }
+
+    // Persist updated state
+    this.persistSession(session);
+
+    if (this.debug) {
+      const shortId = session.threadId.substring(0, 8);
+      console.log(`  🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
+    }
+  }
+
+  /**
+   * Offer context prompt after a session restart (e.g., !cd, worktree creation).
+   * If there's thread history, posts the context prompt and queues the message.
+   * If no history, sends the message immediately.
+   * Returns true if context prompt was posted, false if message was sent directly.
+   */
+  async offerContextPrompt(session: Session, queuedPrompt: string): Promise<boolean> {
+    // Get thread history count (exclude bot messages)
+    const messageCount = await contextPrompt.getThreadContextCount(session);
+
+    if (messageCount === 0) {
+      // No previous messages, send directly
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(queuedPrompt);
+        this.startTyping(session);
+      }
+      return false;
+    }
+
+    // Post context prompt
+    const pending = await contextPrompt.postContextPrompt(
+      session,
+      queuedPrompt,
+      messageCount,
+      (pid, tid) => this.registerPost(pid, tid),
+      () => this.handleContextPromptTimeout(session)
+    );
+
+    session.pendingContextPrompt = pending;
+    this.persistSession(session);
+
+    if (this.debug) {
+      const shortId = session.threadId.substring(0, 8);
+      console.log(`  🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
+    }
+
+    return true;
+  }
+
+  /**
+   * Check if session has a pending context prompt.
+   */
+  hasPendingContextPrompt(threadId: string): boolean {
+    const session = this.findSessionByThreadId(threadId);
+    return session?.pendingContextPrompt !== undefined;
   }
 
   // ---------------------------------------------------------------------------
@@ -330,6 +466,18 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
+    // Convert pendingContextPrompt to persisted form (without timeoutId)
+    let persistedContextPrompt: PersistedContextPrompt | undefined;
+    if (session.pendingContextPrompt) {
+      persistedContextPrompt = {
+        postId: session.pendingContextPrompt.postId,
+        queuedPrompt: session.pendingContextPrompt.queuedPrompt,
+        threadMessageCount: session.pendingContextPrompt.threadMessageCount,
+        createdAt: session.pendingContextPrompt.createdAt,
+        availableOptions: session.pendingContextPrompt.availableOptions,
+      };
+    }
+
     const state: PersistedSession = {
       platformId: session.platformId,
       threadId: session.threadId,
@@ -349,6 +497,7 @@ export class SessionManager {
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
       firstPrompt: session.firstPrompt,
+      pendingContextPrompt: persistedContextPrompt,
     };
     this.sessionStore.save(session.sessionId, state);
   }

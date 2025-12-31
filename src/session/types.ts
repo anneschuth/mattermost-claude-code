@@ -5,6 +5,7 @@
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
+import type { PendingContextPrompt } from './context-prompt.js';
 
 // =============================================================================
 // Interactive State Types
@@ -120,6 +121,9 @@ export interface Session {
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
+
+  // Thread context prompt support
+  pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
 }
 
 // =============================================================================

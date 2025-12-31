@@ -19,6 +19,7 @@ import type {
   PlatformPost,
   PlatformReaction,
   PlatformFile,
+  ThreadMessage,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
@@ -256,6 +257,57 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       return this.normalizePlatformPost(post);
     } catch {
       return null; // Post doesn't exist or was deleted
+    }
+  }
+
+  // Get thread history for context retrieval
+  async getThreadHistory(
+    threadId: string,
+    options?: { limit?: number; excludeBotMessages?: boolean }
+  ): Promise<ThreadMessage[]> {
+    try {
+      // Mattermost API: GET /posts/{post_id}/thread
+      const response = await this.api<{
+        order: string[];
+        posts: Record<string, MattermostPost>;
+      }>('GET', `/posts/${threadId}/thread`);
+
+      // Convert posts map to sorted array (chronological order)
+      const messages: ThreadMessage[] = [];
+      for (const postId of response.order) {
+        const post = response.posts[postId];
+        if (!post) continue;
+
+        // Skip bot messages if requested
+        if (options?.excludeBotMessages && post.user_id === this.botUserId) {
+          continue;
+        }
+
+        // Get username from cache or fetch
+        const user = await this.getUser(post.user_id);
+        const username = user?.username || 'unknown';
+
+        messages.push({
+          id: post.id,
+          userId: post.user_id,
+          username,
+          message: post.message,
+          createAt: post.create_at,
+        });
+      }
+
+      // Sort by createAt (oldest first)
+      messages.sort((a, b) => a.createAt - b.createAt);
+
+      // Apply limit if specified (return most recent N messages)
+      if (options?.limit && messages.length > options.limit) {
+        return messages.slice(-options.limit);
+      }
+
+      return messages;
+    } catch (err) {
+      console.error(`  ⚠️ Failed to get thread history for ${threadId}:`, err);
+      return [];
     }
   }
 

@@ -15,6 +15,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - **Session persistence** - sessions resume automatically after bot restart
 - **Session collaboration** - `!invite @user` to temporarily allow users in a session
 - **Message approval** - unauthorized users can request approval for their messages
+- **Thread context prompt** - when starting a session mid-thread, offers to include previous conversation context
 - Interactive permission approval via emoji reactions
 - Plan approval and question answering via reactions
 - Task list display with live updates
@@ -59,7 +60,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 **Session contains:**
 - `claude: ClaudeCli` - the Claude CLI process
 - `claudeSessionId: string` - UUID for session persistence/resume
-- `pendingApproval`, `pendingQuestionSet`, `pendingMessageApproval` - interactive state
+- `pendingApproval`, `pendingQuestionSet`, `pendingMessageApproval`, `pendingContextPrompt` - interactive state
 - `sessionAllowedUsers: Set<string>` - per-session allowlist (includes session owner)
 - `updateTimer`, `typingTimer` - per-session timers
 - `activeSubagents: Map<toolUseId, postId>` - subagent tracking
@@ -126,14 +127,15 @@ The session management is split into focused modules for maintainability:
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `src/session/manager.ts` | ~635 | **Orchestrator** - thin wrapper that delegates to modules |
-| `src/session/lifecycle.ts` | ~590 | Session start, resume, exit, cleanup |
+| `src/session/manager.ts` | ~700 | **Orchestrator** - thin wrapper that delegates to modules |
+| `src/session/lifecycle.ts` | ~610 | Session start, resume, exit, cleanup |
 | `src/session/events.ts` | ~480 | Claude CLI event handling (assistant, tool_use, etc.) |
 | `src/session/commands.ts` | ~510 | User commands (!cd, !invite, !kick, !permissions) |
 | `src/session/reactions.ts` | ~210 | Emoji reaction handling (approvals, questions) |
 | `src/session/worktree.ts` | ~520 | Git worktree management |
 | `src/session/streaming.ts` | ~180 | Message batching and flushing to chat |
-| `src/session/types.ts` | ~130 | TypeScript types (Session, PendingApproval, etc.) |
+| `src/session/context-prompt.ts` | ~190 | Thread context prompt for mid-thread session starts |
+| `src/session/types.ts` | ~135 | TypeScript types (Session, PendingApproval, etc.) |
 | `src/session/index.ts` | ~15 | Public exports |
 
 **Design Pattern**: SessionManager uses dependency injection via context objects to delegate to modules while maintaining a clean public API.

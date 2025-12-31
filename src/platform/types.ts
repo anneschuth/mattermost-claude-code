@@ -75,3 +75,14 @@ export interface AddReactionRequest {
   postId: string;
   emojiName: string;
 }
+
+/**
+ * Normalized thread message for context retrieval
+ */
+export interface ThreadMessage {
+  id: string;           // Message/post ID
+  userId: string;       // Author's user ID
+  username: string;     // Author's username
+  message: string;      // Message content
+  createAt: number;     // Timestamp (ms since epoch)
+}

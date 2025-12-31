@@ -11,3 +11,4 @@ export type {
   PendingQuestionSet,
   PendingMessageApproval,
 } from './types.js';
+export type { PendingContextPrompt } from './context-prompt.js';

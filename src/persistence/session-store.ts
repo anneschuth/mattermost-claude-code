@@ -12,6 +12,17 @@ export interface WorktreeInfo {
 }
 
 /**
+ * Persisted context prompt state (without timeoutId which can't be serialized)
+ */
+export interface PersistedContextPrompt {
+  postId: string;
+  queuedPrompt: string;
+  threadMessageCount: number;
+  createdAt: number;
+  availableOptions: number[];
+}
+
+/**
  * Persisted session state for resuming after bot restart
  */
 export interface PersistedSession {
@@ -34,6 +45,8 @@ export interface PersistedSession {
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
+  // Context prompt support
+  pendingContextPrompt?: PersistedContextPrompt; // Waiting for context selection
 }
 
 /**

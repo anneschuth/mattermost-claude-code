@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Worktree context**: Replay first user prompt after mid-session worktree creation (`!worktree create`)
+- **Thread context prompt**: When starting a session mid-thread (replying to an existing thread), offers to include previous conversation context
+  - Shows options for last 3, 5, or 10 messages (only options that make sense for available message count)
+  - "All X messages" option when message count doesn't match standard options
+  - 30-second timeout defaults to no context
+  - Context is prepended to the initial prompt so Claude understands the conversation history
 
 ### Fixed
 - Session timeout warning showing negative minutes (e.g., "-24min")

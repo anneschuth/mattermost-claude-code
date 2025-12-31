@@ -4,6 +4,7 @@ import type {
   PlatformPost,
   PlatformReaction,
   PlatformFile,
+  ThreadMessage,
 } from './types.js';
 import type { PlatformFormatter } from './formatter.js';
 
@@ -136,6 +137,17 @@ export interface PlatformClient extends EventEmitter {
    * @returns The post, or null if not found/deleted
    */
   getPost(postId: string): Promise<PlatformPost | null>;
+
+  /**
+   * Get thread history (messages in a thread)
+   * @param threadId - Thread/root post ID
+   * @param options - Optional filtering/limiting options
+   * @returns Array of messages in chronological order (oldest first)
+   */
+  getThreadHistory(
+    threadId: string,
+    options?: { limit?: number; excludeBotMessages?: boolean }
+  ): Promise<ThreadMessage[]>;
 
   // ============================================================================
   // Reactions
