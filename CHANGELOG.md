@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Session timeout warning showing negative minutes (e.g., "-24min")
+- Warning now fires 5 minutes before timeout instead of after 5 minutes idle
+- Stale sessions are now cleaned from persistence on startup
+
 ## [0.16.3] - 2025-12-31
 
 ### Fixed
