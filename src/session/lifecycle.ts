@@ -12,6 +12,7 @@ import type { PersistedSession, SessionStore } from '../persistence/session-stor
 import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
+import { existsSync } from 'fs';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -252,6 +253,21 @@ export async function resumeSession(
   // Check max sessions limit
   if (ctx.sessions.size >= ctx.maxSessions) {
     console.log(`  ⚠️ Max sessions reached, skipping resume for ${shortId}...`);
+    return;
+  }
+
+  // Verify working directory exists
+  if (!existsSync(state.workingDir)) {
+    console.log(`  ⚠️ Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
+    ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+    try {
+      await platform.createPost(
+        `⚠️ **Cannot resume session** - working directory no longer exists:\n\`${state.workingDir}\`\n\nPlease start a new session.`,
+        state.threadId
+      );
+    } catch {
+      // Ignore if we can't post
+    }
     return;
   }
 
