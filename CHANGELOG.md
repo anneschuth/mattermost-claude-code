@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Context prompt**: Fixed context prompt appearing when starting a session with the first message in a thread
+  - The triggering message was incorrectly included in the count, making it show "1 message before this point" when there were none
+
+## [0.16.7] - 2025-12-31
+
+### Fixed
+- **Session resume**: Validate working directory exists before resuming sessions after restart
+  - Prevents crashes when a worktree or directory has been deleted
+
 ## [0.16.6] - 2025-12-31
 
 ### Added
