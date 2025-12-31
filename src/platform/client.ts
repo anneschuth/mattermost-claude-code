@@ -139,6 +139,12 @@ export interface PlatformClient extends EventEmitter {
   getPost(postId: string): Promise<PlatformPost | null>;
 
   /**
+   * Delete a post
+   * @param postId - Post ID to delete
+   */
+  deletePost(postId: string): Promise<void>;
+
+  /**
    * Get thread history (messages in a thread)
    * @param threadId - Thread/root post ID
    * @param options - Optional filtering/limiting options

@@ -124,6 +124,7 @@ export class SessionManager {
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
+      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
     };
   }
 
@@ -436,6 +437,10 @@ export class SessionManager {
     return streaming.buildMessageContent(text, platform, files, this.debug);
   }
 
+  private async bumpTasksToBottom(session: Session): Promise<void> {
+    return streaming.bumpTasksToBottom(session);
+  }
+
   // ---------------------------------------------------------------------------
   // Worktree utilities
   // ---------------------------------------------------------------------------
@@ -494,6 +499,7 @@ export class SessionManager {
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
       tasksPostId: session.tasksPostId,
+      lastTasksContent: session.lastTasksContent,
       worktreeInfo: session.worktreeInfo,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,

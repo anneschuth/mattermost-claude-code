@@ -37,6 +37,7 @@ export interface PersistedSession {
   forceInteractivePermissions: boolean;
   sessionStartPostId: string | null;
   tasksPostId: string | null;
+  lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom
   lastActivityAt: string;        // For stale cleanup
   planApproved: boolean;
   // Worktree support

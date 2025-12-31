@@ -260,6 +260,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
+  // Delete a post
+  async deletePost(postId: string): Promise<void> {
+    await this.api('DELETE', `/posts/${postId}`);
+  }
+
   // Get thread history for context retrieval
   async getThreadHistory(
     threadId: string,

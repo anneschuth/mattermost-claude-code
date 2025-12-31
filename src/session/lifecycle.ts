@@ -44,6 +44,7 @@ export interface LifecycleContext {
   postWorktreePrompt: (session: Session, reason: string) => Promise<void>;
   buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
   offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
+  bumpTasksToBottom: (session: Session) => Promise<void>;
 }
 
 /**
@@ -154,6 +155,7 @@ export async function startSession(
     forceInteractivePermissions: false,
     sessionStartPostId: post.id,
     tasksPostId: null,
+    lastTasksContent: null,
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
@@ -312,6 +314,7 @@ export async function resumeSession(
     forceInteractivePermissions: state.forceInteractivePermissions,
     sessionStartPostId: state.sessionStartPostId,
     tasksPostId: state.tasksPostId,
+    lastTasksContent: state.lastTasksContent ?? null,
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
@@ -385,6 +388,10 @@ export async function sendFollowUp(
   ctx: LifecycleContext
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
+
+  // Bump task list below the user's message
+  await ctx.bumpTasksToBottom(session);
+
   const content = await ctx.buildMessageContent(message, session.platform, files);
   const messageText = typeof content === 'string' ? content : message;
 

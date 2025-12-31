@@ -90,6 +90,7 @@ export interface Session {
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
   tasksPostId: string | null;
+  lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
   activeSubagents: Map<string, string>;  // toolUseId -> postId
 
   // Timers (per-session)
