@@ -123,7 +123,7 @@ export class SessionManager {
       shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
-      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
+      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
     };
   }
 
@@ -346,9 +346,9 @@ export class SessionManager {
    * If no history, sends the message immediately.
    * Returns true if context prompt was posted, false if message was sent directly.
    */
-  async offerContextPrompt(session: Session, queuedPrompt: string): Promise<boolean> {
-    // Get thread history count (exclude bot messages)
-    const messageCount = await contextPrompt.getThreadContextCount(session);
+  async offerContextPrompt(session: Session, queuedPrompt: string, excludePostId?: string): Promise<boolean> {
+    // Get thread history count (exclude bot messages and the triggering message)
+    const messageCount = await contextPrompt.getThreadContextCount(session, excludePostId);
 
     if (messageCount === 0) {
       // No previous messages, send directly
