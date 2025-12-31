@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/permission-server.ts --outdir dist/mcp --target node",
+    "build": "bun build src/index.ts --outdir dist --target bun && bun build src/mcp/permission-server.ts --outdir dist/mcp --target bun",
     "start": "bun dist/index.js",
     "test": "bun test",
     "test:watch": "bun test --watch",
