@@ -43,7 +43,7 @@ export interface LifecycleContext {
   shouldPromptForWorktree: (session: Session) => Promise<string | null>;
   postWorktreePrompt: (session: Session, reason: string) => Promise<void>;
   buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
-  offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
+  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
 }
 
 /**
@@ -210,8 +210,9 @@ export async function startSession(
 
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
   // Offer context prompt if there are previous messages in the thread
+  // Pass replyToPostId to exclude the triggering message from the count
   if (replyToPostId) {
-    const contextOffered = await ctx.offerContextPrompt(session, messageText);
+    const contextOffered = await ctx.offerContextPrompt(session, messageText, replyToPostId);
     if (contextOffered) {
       // Context prompt was posted, message is queued
       // Don't persist yet - offerContextPrompt handles that
