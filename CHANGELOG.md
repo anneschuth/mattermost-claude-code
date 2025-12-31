@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - 2025-12-31
+
+### Fixed
+- CI: Use npm publish for reliable registry authentication (bun publish auth issues)
+
 ## [0.16.1] - 2025-12-31
 
 ### Fixed
