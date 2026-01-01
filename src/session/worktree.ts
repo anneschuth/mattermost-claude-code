@@ -192,6 +192,7 @@ export async function createAndSwitchToWorktree(
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
     offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
+    appendSystemPrompt?: string;
   }
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
@@ -280,6 +281,10 @@ export async function createAndSwitchToWorktree(
       session.claudeSessionId = newSessionId;
 
       // Create new CLI with new working directory
+      // Include system prompt if session doesn't have a title yet
+      // This ensures Claude will generate a title on its next response
+      const needsTitlePrompt = !session.sessionTitle;
+
       const cliOptions: ClaudeCliOptions = {
         workingDir: worktreePath,
         threadId: session.threadId,
@@ -288,6 +293,7 @@ export async function createAndSwitchToWorktree(
         resume: false,  // Fresh start - can't resume across directories
         chrome: options.chromeEnabled,
         platformConfig: session.platform.getMcpConfig(),
+        appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
       };
       session.claude = new ClaudeCli(cliOptions);
 

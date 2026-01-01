@@ -27,6 +27,7 @@ import * as events from './events.js';
 import * as reactions from './reactions.js';
 import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
+import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
 import * as contextPrompt from './context-prompt.js';
 import * as stickyMessage from './sticky-message.js';
@@ -832,6 +833,7 @@ export class SessionManager {
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
+      appendSystemPrompt: CHAT_PLATFORM_PROMPT,
     });
   }
 
