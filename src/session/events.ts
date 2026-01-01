@@ -466,6 +466,11 @@ async function handleTaskStart(
   const description = (input.description as string) || 'Working...';
   const subagentType = (input.subagent_type as string) || 'general';
 
+  // Flush any pending content first to avoid empty continuation messages
+  await ctx.flush(session);
+  session.currentPostId = null;
+  session.pendingContent = '';
+
   // Post subagent status
   const message = `🤖 **Subagent** *(${subagentType})*\n` + `> ${description}\n` + `⏳ Running...`;
 
