@@ -70,9 +70,15 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   // ============================================================================
 
   private normalizePlatformUser(mattermostUser: MattermostUser): PlatformUser {
+    // Build display name from first_name, nickname, or username
+    const displayName = mattermostUser.first_name
+      || mattermostUser.nickname
+      || mattermostUser.username;
+
     return {
       id: mattermostUser.id,
       username: mattermostUser.username,
+      displayName,
       email: mattermostUser.email,
     };
   }
@@ -265,6 +271,25 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     await this.api('DELETE', `/posts/${postId}`);
   }
 
+  // Pin a post to the channel
+  async pinPost(postId: string): Promise<void> {
+    await this.api('POST', `/posts/${postId}/pin`);
+  }
+
+  // Unpin a post from the channel
+  async unpinPost(postId: string): Promise<void> {
+    await this.api('POST', `/posts/${postId}/unpin`);
+  }
+
+  // Get all pinned posts in the channel
+  async getPinnedPosts(): Promise<string[]> {
+    const response = await this.api<{ order: string[]; posts: Record<string, unknown> }>(
+      'GET',
+      `/channels/${this.channelId}/pinned`
+    );
+    return response.order || [];
+  }
+
   // Get thread history for context retrieval
   async getThreadHistory(
     threadId: string,
@@ -394,7 +419,13 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
         // Get user info and emit (with normalized types)
         this.getUser(post.user_id).then((user) => {
-          this.emit('message', this.normalizePlatformPost(post), user);
+          const normalizedPost = this.normalizePlatformPost(post);
+          this.emit('message', normalizedPost, user);
+
+          // Also emit channel_post for top-level posts (not thread replies)
+          if (!post.root_id) {
+            this.emit('channel_post', normalizedPost, user);
+          }
         });
       } catch (err) {
         wsLogger.debug(`Failed to parse post: ${err}`);

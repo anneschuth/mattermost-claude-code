@@ -17,6 +17,8 @@ export interface PlatformClientEvents {
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
   reaction: (reaction: PlatformReaction, user: PlatformUser | null) => void;
+  /** Emitted when someone posts at channel level (not in a thread) */
+  channel_post: (post: PlatformPost, user: PlatformUser | null) => void;
 }
 
 /**
@@ -143,6 +145,24 @@ export interface PlatformClient extends EventEmitter {
    * @param postId - Post ID to delete
    */
   deletePost(postId: string): Promise<void>;
+
+  /**
+   * Pin a post to the channel
+   * @param postId - Post ID to pin
+   */
+  pinPost(postId: string): Promise<void>;
+
+  /**
+   * Unpin a post from the channel
+   * @param postId - Post ID to unpin
+   */
+  unpinPost(postId: string): Promise<void>;
+
+  /**
+   * Get all pinned posts in the channel
+   * @returns Array of pinned post IDs
+   */
+  getPinnedPosts(): Promise<string[]>;
 
   /**
    * Get thread history (messages in a thread)

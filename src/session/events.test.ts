@@ -124,6 +124,8 @@ function createEventContext(): EventContext {
     startTyping: mock((_session: Session) => {}),
     stopTyping: mock((_session: Session) => {}),
     appendContent: mock((_session: Session, _text: string) => {}),
+    updateStickyMessage: mock(async () => {}),
+    persistSession: mock((_session: Session) => {}),
   };
 }
 

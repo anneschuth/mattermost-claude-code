@@ -34,7 +34,7 @@ export interface CommandContext {
   startTyping: (session: Session) => void;
   stopTyping: (session: Session) => void;
   persistSession: (session: Session) => void;
-  killSession: (threadId: string) => void;
+  killSession: (threadId: string) => Promise<void>;
   registerPost: (postId: string, threadId: string) => void;
   offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
 }
@@ -59,7 +59,7 @@ export async function cancelSession(
     session.threadId
   );
 
-  ctx.killSession(session.threadId);
+  await ctx.killSession(session.threadId);
 }
 
 /**

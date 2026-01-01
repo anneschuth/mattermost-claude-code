@@ -10,7 +10,8 @@
  */
 export interface PlatformUser {
   id: string;           // Platform-specific user ID
-  username: string;     // Display username (e.g., 'alice', 'bob')
+  username: string;     // Login username (e.g., 'alice.smith')
+  displayName?: string; // Human-friendly name (e.g., 'Alice Smith')
   email?: string;       // Optional email
 }
 

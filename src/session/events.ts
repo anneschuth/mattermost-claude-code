@@ -31,6 +31,8 @@ export interface EventContext {
   stopTyping: (session: Session) => void;
   appendContent: (session: Session, text: string) => void;
   bumpTasksToBottom: (session: Session) => Promise<void>;
+  updateStickyMessage: () => Promise<void>;
+  persistSession: (session: Session) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +69,7 @@ export function handleEvent(
           handleExitPlanMode(session, block.id as string, ctx);
           hasSpecialTool = true;
         } else if (block.name === 'TodoWrite') {
-          handleTodoWrite(session, block.input as Record<string, unknown>);
+          handleTodoWrite(session, block.input as Record<string, unknown>, ctx);
         } else if (block.name === 'Task') {
           handleTaskStart(session, block.id as string, block.input as Record<string, unknown>, ctx);
         } else if (block.name === 'AskUserQuestion') {
@@ -143,7 +145,38 @@ function formatEvent(
       for (const block of msg?.content || []) {
         if (block.type === 'text' && block.text) {
           // Filter out <thinking> tags that may appear in text content
-          const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+          let text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+
+          // Extract session title if present: [SESSION_TITLE: ...]
+          const titleMatch = text.match(/\[SESSION_TITLE:\s*([^\]]+)\]/);
+          if (titleMatch) {
+            const newTitle = titleMatch[1].trim();
+            if (newTitle !== session.sessionTitle) {
+              session.sessionTitle = newTitle;
+              // Persist the updated title
+              ctx.persistSession(session);
+              // Update sticky message with new title (async, don't wait)
+              ctx.updateStickyMessage().catch(() => {});
+            }
+            // Remove the title marker from the displayed text
+            text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
+          }
+
+          // Extract session description if present: [SESSION_DESCRIPTION: ...]
+          const descMatch = text.match(/\[SESSION_DESCRIPTION:\s*([^\]]+)\]/);
+          if (descMatch) {
+            const newDesc = descMatch[1].trim();
+            if (newDesc !== session.sessionDescription) {
+              session.sessionDescription = newDesc;
+              // Persist the updated description
+              ctx.persistSession(session);
+              // Update sticky message with new description (async, don't wait)
+              ctx.updateStickyMessage().catch(() => {});
+            }
+            // Remove the description marker from the displayed text
+            text = text.replace(/\[SESSION_DESCRIPTION:\s*[^\]]+\]\s*/g, '').trim();
+          }
+
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
           const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true });
@@ -290,7 +323,8 @@ async function handleExitPlanMode(
  */
 async function handleTodoWrite(
   session: Session,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  ctx: EventContext
 ): Promise<void> {
   const todos = input.todos as Array<{
     content: string;
@@ -398,6 +432,8 @@ async function handleTodoWrite(
       );
       session.tasksPostId = post.id;
     }
+    // Update sticky message with new task progress
+    ctx.updateStickyMessage().catch(() => {});
   } catch (err) {
     console.error('  ⚠️ Failed to update tasks:', err);
   }

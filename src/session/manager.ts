@@ -29,6 +29,7 @@ import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
 import * as contextPrompt from './context-prompt.js';
+import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
 
 // Import constants for internal use
@@ -70,10 +71,15 @@ export class SessionManager {
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
 
-    // Start periodic cleanup
+    // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
       lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext())
         .catch(err => console.error('  [cleanup] Error during idle session cleanup:', err));
+      // Refresh sticky message to keep relative times current (only if there are active sessions)
+      if (this.sessions.size > 0) {
+        this.updateStickyMessage()
+          .catch(err => console.error('  [sticky] Error during periodic refresh:', err));
+      }
     }, 60000);
   }
 
@@ -88,6 +94,11 @@ export class SessionManager {
       if (user) {
         this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username);
       }
+    });
+    // Bump sticky message to bottom when someone posts in the channel
+    client.on('channel_post', () => {
+      stickyMessage.markNeedsBump(platformId);
+      this.updateStickyMessage();
     });
     console.log(`  📡 Platform "${platformId}" registered`);
   }
@@ -128,6 +139,7 @@ export class SessionManager {
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
     };
   }
 
@@ -140,6 +152,8 @@ export class SessionManager {
       stopTyping: (s) => this.stopTyping(s),
       appendContent: (s, t) => this.appendContent(s, t),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
+      persistSession: (s) => this.persistSession(s),
     };
   }
 
@@ -556,6 +570,7 @@ export class SessionManager {
       threadId: session.threadId,
       claudeSessionId: session.claudeSessionId,
       startedBy: session.startedBy,
+      startedByDisplayName: session.startedByDisplayName,
       startedAt: session.startedAt.toISOString(),
       lastActivityAt: session.lastActivityAt.toISOString(),
       sessionNumber: session.sessionNumber,
@@ -576,6 +591,8 @@ export class SessionManager {
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       timeoutPostId: session.timeoutPostId,
+      sessionTitle: session.sessionTitle,
+      sessionDescription: session.sessionDescription,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -593,10 +610,31 @@ export class SessionManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Sticky Channel Message
+  // ---------------------------------------------------------------------------
+
+  private async updateStickyMessage(): Promise<void> {
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions);
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   async initialize(): Promise<void> {
+    // Initialize sticky message module with session store for persistence
+    stickyMessage.initialize(this.sessionStore);
+
+    // Clean up old sticky messages from the bot (from failed/crashed runs)
+    for (const platform of this.platforms.values()) {
+      try {
+        const botUser = await platform.getBotUser();
+        await stickyMessage.cleanupOldStickyMessages(platform, botUser.id);
+      } catch (err) {
+        console.error(`  ⚠️ Failed to cleanup old sticky messages for ${platform.platformId}:`, err);
+      }
+    }
+
     // Clean up stale sessions that timed out while bot was down
     // Use 2x timeout to be generous (bot might have been down for a while)
     const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
@@ -605,21 +643,27 @@ export class SessionManager {
     }
 
     const persisted = this.sessionStore.load();
-    if (persisted.size === 0) return;
+    console.log(`  [persist] Loaded ${persisted.size} session(s)`);
 
-    console.log(`  🔄 Found ${persisted.size} persisted session(s), attempting resume...`);
-    for (const state of persisted.values()) {
-      await lifecycle.resumeSession(state, this.getLifecycleContext());
+    if (persisted.size > 0) {
+      console.log(`  🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
+      for (const state of persisted.values()) {
+        await lifecycle.resumeSession(state, this.getLifecycleContext());
+      }
     }
+
+    // Refresh sticky message to reflect current state (even if no sessions)
+    await this.updateStickyMessage();
   }
 
   async startSession(
     options: { prompt: string; files?: PlatformFile[] },
     username: string,
     replyToPostId?: string,
-    platformId: string = 'default'
+    platformId: string = 'default',
+    displayName?: string
   ): Promise<void> {
-    await lifecycle.startSession(options, username, replyToPostId, platformId, this.getLifecycleContext());
+    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getLifecycleContext());
   }
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
@@ -671,10 +715,10 @@ export class SessionManager {
     return this.findPersistedByThreadId(threadId);
   }
 
-  killSession(threadId: string, unpersist = true): void {
+  async killSession(threadId: string, unpersist = true): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    lifecycle.killSession(session, unpersist, this.getLifecycleContext());
+    await lifecycle.killSession(session, unpersist, this.getLifecycleContext());
   }
 
   killAllSessions(): void {
@@ -840,10 +884,11 @@ export class SessionManager {
     branch: string,
     username: string,
     replyToPostId?: string,
-    platformId: string = 'default'
+    platformId: string = 'default',
+    displayName?: string
   ): Promise<void> {
     // Start normal session first
-    await this.startSession(options, username, replyToPostId, platformId);
+    await this.startSession(options, username, replyToPostId, platformId, displayName);
 
     // Then switch to worktree
     const threadId = replyToPostId || '';

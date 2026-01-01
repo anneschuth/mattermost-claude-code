@@ -30,6 +30,7 @@ export interface PersistedSession {
   threadId: string;              // Thread ID within that platform
   claudeSessionId: string;       // UUID for --session-id / --resume
   startedBy: string;             // Username who started the session
+  startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date
   sessionNumber: number;
   workingDir: string;            // Can change via !cd
@@ -53,6 +54,9 @@ export interface PersistedSession {
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
   // Resume support
   timeoutPostId?: string;                        // Post ID of timeout message (for resume via reaction)
+  // Session title and description
+  sessionTitle?: string;                         // Short title describing the session topic
+  sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)
 }
 
 /**
@@ -65,6 +69,7 @@ type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
+  stickyPostIds?: Record<string, string>;  // platformId -> postId
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
@@ -203,9 +208,54 @@ export class SessionStore {
    * Clear all sessions
    */
   clear(): void {
-    this.writeAtomic({ version: STORE_VERSION, sessions: {} });
+    const data = this.loadRaw();
+    // Preserve sticky post IDs when clearing sessions
+    this.writeAtomic({ version: STORE_VERSION, sessions: {}, stickyPostIds: data.stickyPostIds });
     if (this.debug) {
       console.log('  [persist] Cleared all sessions');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sticky Post ID Management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Save a sticky post ID for a platform
+   */
+  saveStickyPostId(platformId: string, postId: string): void {
+    const data = this.loadRaw();
+    if (!data.stickyPostIds) {
+      data.stickyPostIds = {};
+    }
+    data.stickyPostIds[platformId] = postId;
+    this.writeAtomic(data);
+
+    if (this.debug) {
+      console.log(`  [persist] Saved sticky post ID for ${platformId}: ${postId.substring(0, 8)}...`);
+    }
+  }
+
+  /**
+   * Get all sticky post IDs
+   */
+  getStickyPostIds(): Map<string, string> {
+    const data = this.loadRaw();
+    return new Map(Object.entries(data.stickyPostIds || {}));
+  }
+
+  /**
+   * Remove a sticky post ID for a platform
+   */
+  removeStickyPostId(platformId: string): void {
+    const data = this.loadRaw();
+    if (data.stickyPostIds && data.stickyPostIds[platformId]) {
+      delete data.stickyPostIds[platformId];
+      this.writeAtomic(data);
+
+      if (this.debug) {
+        console.log(`  [persist] Removed sticky post ID for ${platformId}`);
+      }
     }
   }
 

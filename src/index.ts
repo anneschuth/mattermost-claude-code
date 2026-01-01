@@ -392,11 +392,11 @@ async function main() {
       const branch = branchMatch[1];
       // Remove the branch specification from the prompt
       const cleanedPrompt = prompt.replace(/(?:on branch|!worktree)\s+\S+/i, '').trim();
-      await session.startSessionWithWorktree({ prompt: cleanedPrompt || prompt, files }, branch, username, threadRoot);
+      await session.startSessionWithWorktree({ prompt: cleanedPrompt || prompt, files }, branch, username, threadRoot, platformConfig.id, user?.displayName);
       return;
     }
 
-    await session.startSession({ prompt, files }, username, threadRoot);
+    await session.startSession({ prompt, files }, username, threadRoot, platformConfig.id, user?.displayName);
     } catch (err) {
       console.error('  ❌ Error handling message:', err);
       // Try to notify user if possible

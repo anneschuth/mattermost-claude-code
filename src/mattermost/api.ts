@@ -182,3 +182,48 @@ export async function createInteractivePost(
 
   return post;
 }
+
+/**
+ * Pin a post to a channel.
+ *
+ * @param config - API configuration
+ * @param postId - ID of the post to pin
+ */
+export async function pinPost(
+  config: MattermostApiConfig,
+  postId: string
+): Promise<void> {
+  await mattermostApi<void>(config, 'POST', `/posts/${postId}/pin`);
+}
+
+/**
+ * Unpin a post from a channel.
+ *
+ * @param config - API configuration
+ * @param postId - ID of the post to unpin
+ */
+export async function unpinPost(
+  config: MattermostApiConfig,
+  postId: string
+): Promise<void> {
+  await mattermostApi<void>(config, 'POST', `/posts/${postId}/unpin`);
+}
+
+/**
+ * Get all pinned posts in a channel.
+ *
+ * @param config - API configuration
+ * @param channelId - Channel ID
+ * @returns Array of pinned post IDs
+ */
+export async function getPinnedPosts(
+  config: MattermostApiConfig,
+  channelId: string
+): Promise<string[]> {
+  const response = await mattermostApi<{ order: string[]; posts: Record<string, MattermostApiPost> }>(
+    config,
+    'GET',
+    `/channels/${channelId}/pinned`
+  );
+  return response.order || [];
+}
