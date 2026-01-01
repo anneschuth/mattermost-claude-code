@@ -7,6 +7,10 @@ import type { PlatformClient } from '../platform/index.js';
 const testConfig: StickyMessageConfig = {
   maxSessions: 5,
   chromeEnabled: false,
+  skipPermissions: false,
+  worktreeMode: 'prompt',
+  workingDir: '/home/user/projects',
+  debug: false,
 };
 
 // Create a mock platform client
@@ -116,6 +120,51 @@ describe('buildStickyMessage', () => {
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
 
     expect(result).not.toContain('Chrome');
+  });
+
+  it('shows Interactive permission mode by default', async () => {
+    const sessions = new Map<string, Session>();
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('`🔐 Interactive`');
+  });
+
+  it('shows Auto permission mode when skipPermissions is true', async () => {
+    const sessions = new Map<string, Session>();
+    const autoConfig = { ...testConfig, skipPermissions: true };
+    const result = await buildStickyMessage(sessions, 'test-platform', autoConfig);
+
+    expect(result).toContain('`⚡ Auto`');
+  });
+
+  it('shows worktree mode when not default prompt', async () => {
+    const sessions = new Map<string, Session>();
+    const alwaysConfig = { ...testConfig, worktreeMode: 'always' as const };
+    const result = await buildStickyMessage(sessions, 'test-platform', alwaysConfig);
+
+    expect(result).toContain('`🌿 Worktree: always`');
+  });
+
+  it('hides worktree mode when set to prompt (default)', async () => {
+    const sessions = new Map<string, Session>();
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).not.toContain('Worktree');
+  });
+
+  it('shows debug mode when enabled', async () => {
+    const sessions = new Map<string, Session>();
+    const debugConfig = { ...testConfig, debug: true };
+    const result = await buildStickyMessage(sessions, 'test-platform', debugConfig);
+
+    expect(result).toContain('`🐛 Debug`');
+  });
+
+  it('shows working directory', async () => {
+    const sessions = new Map<string, Session>();
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('`📂 /home/user/projects`');
   });
 
   it('shows active sessions in card-style list', async () => {

@@ -23,6 +23,10 @@ const botStartedAt = new Date();
 export interface StickyMessageConfig {
   maxSessions: number;
   chromeEnabled: boolean;
+  skipPermissions: boolean;
+  worktreeMode: 'prompt' | 'always' | 'never';
+  workingDir: string;
+  debug: boolean;
 }
 
 // Store sticky post IDs per platform (in-memory cache)
@@ -102,7 +106,7 @@ function getSessionTopic(session: Session): string {
 
 /**
  * Build the status bar for the sticky message.
- * Shows system-level info: version, sessions, battery, uptime, chrome, hostname
+ * Shows system-level info: version, sessions, settings, battery, uptime, hostname
  */
 async function buildStatusBar(
   sessionCount: number,
@@ -116,6 +120,27 @@ async function buildStatusBar(
   // Session count
   items.push(`\`${sessionCount}/${config.maxSessions} sessions\``);
 
+  // Permission mode
+  const permMode = config.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+  items.push(`\`${permMode}\``);
+
+  // Worktree mode (only show if not default 'prompt')
+  if (config.worktreeMode === 'always') {
+    items.push('`🌿 Worktree: always`');
+  } else if (config.worktreeMode === 'never') {
+    items.push('`🌿 Worktree: never`');
+  }
+
+  // Chrome status
+  if (config.chromeEnabled) {
+    items.push('`🌐 Chrome`');
+  }
+
+  // Debug mode
+  if (config.debug) {
+    items.push('`🐛 Debug`');
+  }
+
   // Battery status (if available)
   const battery = await formatBatteryStatus();
   if (battery) {
@@ -126,10 +151,9 @@ async function buildStatusBar(
   const uptime = formatUptime(botStartedAt);
   items.push(`\`⏱️ ${uptime}\``);
 
-  // Chrome status
-  if (config.chromeEnabled) {
-    items.push('`🌐 Chrome`');
-  }
+  // Working directory (shortened)
+  const shortDir = config.workingDir.replace(process.env.HOME || '', '~');
+  items.push(`\`📂 ${shortDir}\``);
 
   // Hostname
   const host = hostname();
