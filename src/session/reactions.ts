@@ -72,6 +72,9 @@ export async function handleQuestionReaction(
       startTyping: ctx.startTyping,
       stopTyping: ctx.stopTyping,
       appendContent: () => {},
+      bumpTasksToBottom: async () => {},
+      updateStickyMessage: async () => {},
+      persistSession: () => {},
     });
   } else {
     // All questions answered - send user message (NOT tool_result)
