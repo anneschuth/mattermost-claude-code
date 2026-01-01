@@ -11,10 +11,7 @@ import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { printLogo } from './logo.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
-
-const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
-const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+import { dim, bold, cyan } from './utils/output.js';
 
 // Define CLI options
 program

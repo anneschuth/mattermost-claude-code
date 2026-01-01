@@ -4,16 +4,7 @@
  * Stylized CT in Claude Code's block character style.
  */
 
-// ANSI color codes for terminal
-const colors = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  // Claude blue
-  blue: '\x1b[38;5;27m',
-  // Claude orange/coral
-  orange: '\x1b[38;5;209m',
-};
+import { colors } from './utils/output.js';
 
 /**
  * ASCII logo for CLI display (with ANSI colors)

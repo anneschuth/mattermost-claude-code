@@ -8,10 +8,7 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
 } from './config/migration.js';
-
-const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
-const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+import { bold, dim, green } from './utils/output.js';
 
 const onCancel = () => {
   console.log('');
