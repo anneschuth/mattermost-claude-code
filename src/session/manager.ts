@@ -139,6 +139,7 @@ export class SessionManager {
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       appendContent: (s, t) => this.appendContent(s, t),
+      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
     };
   }
 

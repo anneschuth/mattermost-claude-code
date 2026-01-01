@@ -30,6 +30,7 @@ export interface EventContext {
   startTyping: (session: Session) => void;
   stopTyping: (session: Session) => void;
   appendContent: (session: Session, text: string) => void;
+  bumpTasksToBottom: (session: Session) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ export function handleEvent(
         } else if (block.name === 'TodoWrite') {
           handleTodoWrite(session, block.input as Record<string, unknown>);
         } else if (block.name === 'Task') {
-          handleTaskStart(session, block.id as string, block.input as Record<string, unknown>);
+          handleTaskStart(session, block.id as string, block.input as Record<string, unknown>, ctx);
         } else if (block.name === 'AskUserQuestion') {
           handleAskUserQuestion(session, block.id as string, block.input as Record<string, unknown>, ctx);
           hasSpecialTool = true;
@@ -408,7 +409,8 @@ async function handleTodoWrite(
 async function handleTaskStart(
   session: Session,
   toolUseId: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
+  ctx: EventContext
 ): Promise<void> {
   const description = (input.description as string) || 'Working...';
   const subagentType = (input.subagent_type as string) || 'general';
@@ -419,6 +421,9 @@ async function handleTaskStart(
   try {
     const post = await session.platform.createPost(message, session.threadId);
     session.activeSubagents.set(toolUseId, post.id);
+
+    // Bump task list to stay below subagent messages
+    await ctx.bumpTasksToBottom(session);
   } catch (err) {
     console.error('  ⚠️ Failed to post subagent status:', err);
   }

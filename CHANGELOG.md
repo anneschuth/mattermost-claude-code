@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Hard threshold at 14K chars ensures messages stay within platform limits
   - Adds `*... (continued below)*` marker when breaking messages
 
+### Fixed
+- **Task list stays below subagent messages** - Task list now bumps to bottom when subagents start
+  - Previously, subagent status messages would appear below the task list
+  - Now the task list correctly repositions itself below subagent posts
+
 ## [0.19.1] - 2026-01-01
 
 ### Fixed
