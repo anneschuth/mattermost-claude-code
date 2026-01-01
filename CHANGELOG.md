@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-01-01
+
 ### Added
 - **Minimize/expand task list** - Toggle task list visibility with emoji reactions
   - React with 🔽 (`arrow_down_small`) or 🔻 (`small_red_triangle_down`) on the task list to toggle
