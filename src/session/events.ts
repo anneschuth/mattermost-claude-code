@@ -151,7 +151,13 @@ function formatEvent(
           const titleMatch = text.match(/\[SESSION_TITLE:\s*([^\]]+)\]/);
           if (titleMatch) {
             const newTitle = titleMatch[1].trim();
-            if (newTitle !== session.sessionTitle) {
+            // Validate title: reject placeholders like "...", empty, or too short
+            const isValidTitle = newTitle.length >= 3 &&
+              !/^\.+$/.test(newTitle) &&
+              !/^…+$/.test(newTitle) &&
+              newTitle !== '<short title>' &&
+              !newTitle.startsWith('...');
+            if (isValidTitle && newTitle !== session.sessionTitle) {
               session.sessionTitle = newTitle;
               // Persist the updated title
               ctx.persistSession(session);
@@ -166,7 +172,13 @@ function formatEvent(
           const descMatch = text.match(/\[SESSION_DESCRIPTION:\s*([^\]]+)\]/);
           if (descMatch) {
             const newDesc = descMatch[1].trim();
-            if (newDesc !== session.sessionDescription) {
+            // Validate description: reject placeholders like "...", empty, or too short
+            const isValidDesc = newDesc.length >= 5 &&
+              !/^\.+$/.test(newDesc) &&
+              !/^…+$/.test(newDesc) &&
+              newDesc !== '<brief description>' &&
+              !newDesc.startsWith('...');
+            if (isValidDesc && newDesc !== session.sessionDescription) {
               session.sessionDescription = newDesc;
               // Persist the updated description
               ctx.persistSession(session);
