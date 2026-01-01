@@ -47,8 +47,61 @@ export type BreakpointType =
   | 'none';
 
 /**
+ * Information about code block state at a position.
+ */
+export interface CodeBlockInfo {
+  /** Whether we're inside an open code block */
+  isInside: boolean;
+  /** The language of the code block (e.g., 'diff', 'typescript') */
+  language?: string;
+  /** Position of the opening ``` in the content */
+  openPosition?: number;
+}
+
+/**
+ * Check if a position is inside an open code block.
+ * Counts ``` markers from the start to determine if we're inside a block.
+ *
+ * @param content - The full content string
+ * @param position - Position to check
+ * @returns Information about code block state at that position
+ */
+export function getCodeBlockState(content: string, position: number): CodeBlockInfo {
+  const textUpToPosition = content.substring(0, position);
+
+  // Find all code block markers (```) - they appear at line start or after newline
+  const markers: { index: number; isOpening: boolean; language?: string }[] = [];
+  const markerRegex = /^```(\w*)?$/gm;
+  let match;
+
+  while ((match = markerRegex.exec(textUpToPosition)) !== null) {
+    const isOpening = markers.length === 0 || !markers[markers.length - 1].isOpening;
+    markers.push({
+      index: match.index,
+      isOpening,
+      language: isOpening ? match[1] : undefined,
+    });
+  }
+
+  // If odd number of markers, we're inside a code block
+  if (markers.length > 0 && markers.length % 2 === 1) {
+    const lastMarker = markers[markers.length - 1];
+    return {
+      isInside: true,
+      language: lastMarker.language,
+      openPosition: lastMarker.index,
+    };
+  }
+
+  return { isInside: false };
+}
+
+/**
  * Find the best logical breakpoint in content near or after a position.
  * Returns the position to break at, or -1 if no good breakpoint found.
+ *
+ * IMPORTANT: This function now checks if we're inside a code block and
+ * prioritizes finding the end of that block before breaking.
  *
  * @param content - The full content string
  * @param startPos - Position to start looking from
@@ -62,40 +115,80 @@ export function findLogicalBreakpoint(
 ): { position: number; type: BreakpointType } | null {
   const searchWindow = content.substring(startPos, startPos + maxLookAhead);
 
+  // First, check if we're inside an open code block at startPos
+  const codeBlockState = getCodeBlockState(content, startPos);
+
+  if (codeBlockState.isInside) {
+    // We're inside a code block - we MUST find its closing ``` before breaking
+    // Look for the closing ``` in the search window
+    const codeBlockEndMatch = searchWindow.match(/^```$/m);
+    if (codeBlockEndMatch && codeBlockEndMatch.index !== undefined) {
+      // Found the end - break AFTER the closing ```
+      const pos = startPos + codeBlockEndMatch.index + codeBlockEndMatch[0].length;
+      // Also skip any trailing newline
+      const nextChar = content[pos];
+      const finalPos = nextChar === '\n' ? pos + 1 : pos;
+      return { position: finalPos, type: 'code_block_end' };
+    }
+
+    // No closing found in window - return null to indicate we can't safely break here
+    // The caller (flush) will need to handle this by either:
+    // 1. Extending the search window
+    // 2. Force-breaking with proper code block closure/reopening
+    return null;
+  }
+
+  // Not inside a code block - use normal breakpoint logic
+  // But validate that each potential breakpoint is not inside a code block
+
   // Priority 1: Look for tool result markers (natural tool completion boundary)
   // These look like "  ↳ ✓" or "  ↳ ❌ Error"
   const toolMarkerMatch = searchWindow.match(/ {2}↳ [✓❌][^\n]*\n/);
   if (toolMarkerMatch && toolMarkerMatch.index !== undefined) {
     const pos = startPos + toolMarkerMatch.index + toolMarkerMatch[0].length;
-    return { position: pos, type: 'tool_marker' };
+    // Verify we're not inside a code block at this position
+    if (!getCodeBlockState(content, pos).isInside) {
+      return { position: pos, type: 'tool_marker' };
+    }
   }
 
   // Priority 2: Look for markdown headings (section boundaries)
   const headingMatch = searchWindow.match(/\n(#{2,3} )/);
   if (headingMatch && headingMatch.index !== undefined) {
-    // Break BEFORE the heading (at the newline)
-    return { position: startPos + headingMatch.index, type: 'heading' };
+    const pos = startPos + headingMatch.index;
+    // Verify we're not inside a code block at this position
+    if (!getCodeBlockState(content, pos).isInside) {
+      return { position: pos, type: 'heading' };
+    }
   }
 
   // Priority 3: Look for end of code blocks
-  const codeBlockEndMatch = searchWindow.match(/```\n/);
+  const codeBlockEndMatch = searchWindow.match(/^```$/m);
   if (codeBlockEndMatch && codeBlockEndMatch.index !== undefined) {
     const pos = startPos + codeBlockEndMatch.index + codeBlockEndMatch[0].length;
-    return { position: pos, type: 'code_block_end' };
+    const nextChar = content[pos];
+    const finalPos = nextChar === '\n' ? pos + 1 : pos;
+    return { position: finalPos, type: 'code_block_end' };
   }
 
   // Priority 4: Look for paragraph breaks (double newlines)
   const paragraphMatch = searchWindow.match(/\n\n/);
   if (paragraphMatch && paragraphMatch.index !== undefined) {
     const pos = startPos + paragraphMatch.index + paragraphMatch[0].length;
-    return { position: pos, type: 'paragraph' };
+    // Verify we're not inside a code block at this position
+    if (!getCodeBlockState(content, pos).isInside) {
+      return { position: pos, type: 'paragraph' };
+    }
   }
 
-  // Priority 5: Fallback to any line break
+  // Priority 5: Fallback to any line break (but not inside code blocks)
   const lineBreakMatch = searchWindow.match(/\n/);
   if (lineBreakMatch && lineBreakMatch.index !== undefined) {
     const pos = startPos + lineBreakMatch.index + 1;
-    return { position: pos, type: 'none' };
+    // Verify we're not inside a code block at this position
+    if (!getCodeBlockState(content, pos).isInside) {
+      return { position: pos, type: 'none' };
+    }
   }
 
   return null;
@@ -362,21 +455,45 @@ export async function flush(
     // Determine where to break
     let breakPoint: number;
 
+    // Track if we're breaking inside a code block (so we can close/reopen it)
+    let codeBlockLanguage: string | undefined;
+
     if (content.length > HARD_CONTINUATION_THRESHOLD) {
       // Hard break: we're at the limit, must break now
       // Try to find a logical breakpoint near the threshold
+      const startSearchPos = Math.floor(HARD_CONTINUATION_THRESHOLD * 0.7);
       const breakInfo = findLogicalBreakpoint(
         content,
-        Math.floor(HARD_CONTINUATION_THRESHOLD * 0.7),
+        startSearchPos,
         Math.floor(HARD_CONTINUATION_THRESHOLD * 0.3)
       );
       if (breakInfo) {
         breakPoint = breakInfo.position;
       } else {
-        // Fallback: find any line break
-        breakPoint = content.lastIndexOf('\n', HARD_CONTINUATION_THRESHOLD);
-        if (breakPoint < HARD_CONTINUATION_THRESHOLD * 0.7) {
-          breakPoint = HARD_CONTINUATION_THRESHOLD;
+        // findLogicalBreakpoint returned null - we might be inside a code block
+        // Check if we're inside a code block at the desired break position
+        const codeBlockState = getCodeBlockState(content, startSearchPos);
+
+        if (codeBlockState.isInside) {
+          // We're inside a code block and can't find its end within the lookahead
+          // We need to force-break and properly close/reopen the code block
+          codeBlockLanguage = codeBlockState.language;
+
+          // Find a line break within the code block to break at
+          const searchWindow = content.substring(startSearchPos, HARD_CONTINUATION_THRESHOLD);
+          const lineBreakMatch = searchWindow.match(/\n/);
+          if (lineBreakMatch && lineBreakMatch.index !== undefined) {
+            breakPoint = startSearchPos + lineBreakMatch.index + 1;
+          } else {
+            breakPoint = HARD_CONTINUATION_THRESHOLD;
+          }
+        } else {
+          // Not inside a code block, just couldn't find a good breakpoint
+          // Fallback: find any line break
+          breakPoint = content.lastIndexOf('\n', HARD_CONTINUATION_THRESHOLD);
+          if (breakPoint < HARD_CONTINUATION_THRESHOLD * 0.7) {
+            breakPoint = HARD_CONTINUATION_THRESHOLD;
+          }
         }
       }
     } else {
@@ -392,8 +509,16 @@ export async function flush(
     }
 
     // Split at the breakpoint
-    const firstPart = content.substring(0, breakPoint).trim();
-    const remainder = content.substring(breakPoint).trim();
+    let firstPart = content.substring(0, breakPoint).trim();
+    let remainder = content.substring(breakPoint).trim();
+
+    // If we're breaking inside a code block, close it in the first part and reopen in the remainder
+    if (codeBlockLanguage !== undefined) {
+      // Close the code block in the first part
+      firstPart = firstPart + '\n```';
+      // Reopen the code block in the remainder (use same language)
+      remainder = '```' + codeBlockLanguage + '\n' + remainder;
+    }
 
     // Only add continuation marker if we have more content
     const firstPartWithMarker = remainder

@@ -9,6 +9,7 @@ import {
   findLogicalBreakpoint,
   shouldFlushEarly,
   endsAtBreakpoint,
+  getCodeBlockState,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -581,5 +582,112 @@ describe('threshold constants', () => {
   test('MAX_LINES_BEFORE_BREAK is reasonable', () => {
     expect(MAX_LINES_BEFORE_BREAK).toBeGreaterThan(5); // More than Mattermost's 5
     expect(MAX_LINES_BEFORE_BREAK).toBeLessThan(50);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Code block state detection tests
+// ---------------------------------------------------------------------------
+
+describe('getCodeBlockState', () => {
+  test('detects when inside a code block', () => {
+    const content = 'Some text\n```typescript\nconst x = 1;\n';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(true);
+    expect(result.language).toBe('typescript');
+  });
+
+  test('detects when outside a closed code block', () => {
+    const content = 'Some text\n```typescript\nconst x = 1;\n```\nMore text';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(false);
+  });
+
+  test('detects when inside a diff block', () => {
+    const content = 'Edit file.ts\n```diff\n- old line\n+ new line\n';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(true);
+    expect(result.language).toBe('diff');
+  });
+
+  test('detects code block without language', () => {
+    const content = 'Some text\n```\ncode here\n';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(true);
+    // Language is undefined when no language is specified
+    expect(result.language).toBeUndefined();
+  });
+
+  test('tracks position of opening marker', () => {
+    const content = 'Prefix\n```typescript\ncode';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(true);
+    expect(result.openPosition).toBe(content.indexOf('```typescript'));
+  });
+
+  test('handles multiple code blocks correctly', () => {
+    const content = '```js\ncode1\n```\ntext\n```python\ncode2';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(true);
+    expect(result.language).toBe('python');
+  });
+
+  test('handles position in middle of content', () => {
+    const content = '```js\ncode\n```\nmore\n```diff\nchanges\n```';
+    // Check at position after first code block
+    const pos = content.indexOf('more');
+    const result = getCodeBlockState(content, pos);
+    expect(result.isInside).toBe(false);
+  });
+
+  test('returns false for content without code blocks', () => {
+    const content = 'Just regular text without any code blocks';
+    const result = getCodeBlockState(content, content.length);
+    expect(result.isInside).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findLogicalBreakpoint with code block awareness tests
+// ---------------------------------------------------------------------------
+
+describe('findLogicalBreakpoint with code blocks', () => {
+  test('returns null when inside code block without closing in window', () => {
+    // Content where we're inside a code block and the closing is beyond the search window
+    const longCode = 'x'.repeat(600);
+    const longContent = `Text\n\`\`\`diff\n${longCode}\n\`\`\`\nafter`;
+
+    // Search from position 20 (inside the diff block) with 100 char lookahead
+    // The closing ``` is beyond the 100 char window
+    const result = findLogicalBreakpoint(longContent, 20, 100);
+    // Should return null because we can't find closing in the 100 char window
+    expect(result).toBeNull();
+  });
+
+  test('finds code block end when inside block and closing is within window', () => {
+    const content = 'Text\n```diff\n- old\n+ new\n```\nMore text after';
+    // Start searching from inside the diff block
+    const result = findLogicalBreakpoint(content, 15);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('code_block_end');
+    // Should break after the closing ```
+    expect(result?.position).toBeGreaterThan(content.indexOf('```\n'));
+  });
+
+  test('does not suggest break inside code block for paragraph markers', () => {
+    const content = '```typescript\ncode\n\nmore code\n```';
+    // The \n\n inside the code block should NOT be a valid break point
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('code_block_end');
+    // Position should be after the closing ```
+    expect(result?.position).toBe(content.length);
+  });
+
+  test('prefers code block end over other markers inside the block', () => {
+    // Content with a "heading" pattern inside a code block
+    const content = '```markdown\n## Heading inside block\n```\noutside';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result?.type).toBe('code_block_end');
   });
 });
