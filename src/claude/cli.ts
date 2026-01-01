@@ -41,6 +41,7 @@ export interface ClaudeCliOptions {
   resume?: boolean;    // If true, use --resume instead of --session-id
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
   platformConfig?: PlatformMcpConfig;  // Platform-specific config for MCP server
+  appendSystemPrompt?: string;  // Additional system prompt to append
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -113,6 +114,11 @@ export class ClaudeCli extends EventEmitter {
     // Chrome integration
     if (this.options.chrome) {
       args.push('--chrome');
+    }
+
+    // Append system prompt for context
+    if (this.options.appendSystemPrompt) {
+      args.push('--append-system-prompt', this.options.appendSystemPrompt);
     }
 
     if (this.debug) {

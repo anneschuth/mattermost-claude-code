@@ -46,6 +46,7 @@ export interface LifecycleContext {
   buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
   offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
   bumpTasksToBottom: (session: Session) => Promise<void>;
+  updateStickyMessage: () => Promise<void>;
 }
 
 /**
@@ -122,6 +123,28 @@ export async function startSession(
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
+
+  // System prompt for chat platform context
+  const chatPlatformPrompt = `
+You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
+
+SESSION TITLE: At the START of your first response, include a short title for this session in the format:
+[SESSION_TITLE: <title here>]
+
+The title should be:
+- 3-7 words maximum
+- Descriptive of the main task/topic
+- Written in imperative form (e.g., "Fix login bug", "Add dark mode", "Refactor API client")
+- Do NOT include quotes around the title
+
+You can update the title later if the session focus changes significantly by including the same format again.
+
+Example: If the user asks "help me debug why the tests are failing", respond with:
+[SESSION_TITLE: Debug failing tests]
+
+Then continue with your normal response.
+`.trim();
+
   const cliOptions: ClaudeCliOptions = {
     workingDir: ctx.workingDir,
     threadId: actualThreadId,
@@ -130,6 +153,7 @@ export async function startSession(
     resume: false,
     chrome: ctx.chromeEnabled,
     platformConfig: platformMcpConfig,
+    appendSystemPrompt: chatPlatformPrompt,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -181,6 +205,9 @@ export async function startSession(
 
   // Update the header with full session info
   await ctx.updateSessionHeader(session);
+
+  // Update sticky channel message with new session
+  await ctx.updateStickyMessage();
 
   // Start typing indicator
   ctx.startTyping(session);
@@ -338,6 +365,7 @@ export async function resumeSession(
     queuedPrompt: state.queuedPrompt,
     firstPrompt: state.firstPrompt,
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
+    sessionTitle: state.sessionTitle,
   };
 
   // Register session
@@ -365,6 +393,9 @@ export async function resumeSession(
 
     // Update session header
     await ctx.updateSessionHeader(session);
+
+    // Update sticky channel message with resumed session
+    await ctx.updateStickyMessage();
 
     // Update persistence with new activity time
     ctx.persistSession(session);
@@ -587,6 +618,9 @@ export async function handleExit(
   }
 
   console.log(`  ■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);
+
+  // Update sticky channel message after session end
+  await ctx.updateStickyMessage();
 }
 
 /**

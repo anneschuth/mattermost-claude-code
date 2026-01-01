@@ -29,6 +29,7 @@ import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
 import * as contextPrompt from './context-prompt.js';
+import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
 
 // Import constants for internal use
@@ -128,6 +129,7 @@ export class SessionManager {
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
     };
   }
 
@@ -140,6 +142,7 @@ export class SessionManager {
       stopTyping: (s) => this.stopTyping(s),
       appendContent: (s, t) => this.appendContent(s, t),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
     };
   }
 
@@ -576,6 +579,7 @@ export class SessionManager {
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       timeoutPostId: session.timeoutPostId,
+      sessionTitle: session.sessionTitle,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -593,10 +597,21 @@ export class SessionManager {
   }
 
   // ---------------------------------------------------------------------------
+  // Sticky Channel Message
+  // ---------------------------------------------------------------------------
+
+  private async updateStickyMessage(): Promise<void> {
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions);
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   async initialize(): Promise<void> {
+    // Initialize sticky message module with session store for persistence
+    stickyMessage.initialize(this.sessionStore);
+
     // Clean up stale sessions that timed out while bot was down
     // Use 2x timeout to be generous (bot might have been down for a while)
     const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);

@@ -31,6 +31,7 @@ export interface EventContext {
   stopTyping: (session: Session) => void;
   appendContent: (session: Session, text: string) => void;
   bumpTasksToBottom: (session: Session) => Promise<void>;
+  updateStickyMessage: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +144,21 @@ function formatEvent(
       for (const block of msg?.content || []) {
         if (block.type === 'text' && block.text) {
           // Filter out <thinking> tags that may appear in text content
-          const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+          let text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+
+          // Extract session title if present: [SESSION_TITLE: ...]
+          const titleMatch = text.match(/\[SESSION_TITLE:\s*([^\]]+)\]/);
+          if (titleMatch) {
+            const newTitle = titleMatch[1].trim();
+            if (newTitle !== session.sessionTitle) {
+              session.sessionTitle = newTitle;
+              // Update sticky message with new title (async, don't wait)
+              ctx.updateStickyMessage().catch(() => {});
+            }
+            // Remove the title marker from the displayed text
+            text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
+          }
+
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
           const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true });
