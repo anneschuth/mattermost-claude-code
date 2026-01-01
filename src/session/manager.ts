@@ -635,7 +635,10 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async updateStickyMessage(): Promise<void> {
-    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions);
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions, {
+      maxSessions: MAX_SESSIONS,
+      chromeEnabled: this.chromeEnabled,
+    });
   }
 
   // ---------------------------------------------------------------------------
