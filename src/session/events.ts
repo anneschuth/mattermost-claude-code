@@ -12,6 +12,7 @@ import {
   NUMBER_EMOJIS,
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
+  TASK_TOGGLE_EMOJIS,
 } from '../utils/emoji.js';
 
 // ---------------------------------------------------------------------------
@@ -363,7 +364,12 @@ async function handleTodoWrite(
     if (session.tasksPostId) {
       await session.platform.updatePost(session.tasksPostId, displayMessage);
     } else {
-      const post = await session.platform.createPost(displayMessage, session.threadId);
+      // Create with toggle emoji reaction so users can click to collapse
+      const post = await session.platform.createInteractivePost(
+        displayMessage,
+        [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+        session.threadId
+      );
       session.tasksPostId = post.id;
     }
   } catch (err) {

@@ -41,6 +41,19 @@ function createMockPlatform() {
     deletePost: mock(async (postId: string): Promise<void> => {
       posts.delete(postId);
     }),
+    createInteractivePost: mock(async (message: string, _reactions: string[], _threadId?: string): Promise<PlatformPost> => {
+      const id = `post_${postIdCounter++}`;
+      posts.set(id, message);
+      return {
+        id,
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'bot',
+        message,
+        rootId: _threadId || '',
+        createAt: Date.now(),
+      };
+    }),
     sendTyping: mock(() => {}),
     posts,
   };
