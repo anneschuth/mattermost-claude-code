@@ -13,6 +13,7 @@ import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
+import { keepAlive } from '../utils/keep-alive.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -173,6 +174,9 @@ export async function startSession(
   ctx.registerPost(post.id, actualThreadId);
   const shortId = actualThreadId.substring(0, 8);
   console.log(`  ▶ Session #${ctx.sessions.size} started (${shortId}…) by @${username}`);
+
+  // Notify keep-alive that a session started
+  keepAlive.sessionStarted();
 
   // Update the header with full session info
   await ctx.updateSessionHeader(session);
@@ -340,6 +344,9 @@ export async function resumeSession(
     ctx.registerPost(state.sessionStartPostId, state.threadId);
   }
 
+  // Notify keep-alive that a session started
+  keepAlive.sessionStarted();
+
   // Bind event handlers (use sessionId which is the composite key)
   claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
   claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
@@ -487,6 +494,8 @@ export async function handleExit(
       session.updateTimer = null;
     }
     ctx.sessions.delete(session.sessionId);
+    // Notify keep-alive that a session ended
+    keepAlive.sessionEnded();
     return;
   }
 
@@ -506,6 +515,8 @@ export async function handleExit(
         ctx.postIndex.delete(postId);
       }
     }
+    // Notify keep-alive that a session ended
+    keepAlive.sessionEnded();
     // Notify user
     try {
       await session.platform.createPost(
@@ -528,6 +539,8 @@ export async function handleExit(
       session.updateTimer = null;
     }
     ctx.sessions.delete(session.sessionId);
+    // Notify keep-alive that a session ended
+    keepAlive.sessionEnded();
     try {
       await session.platform.createPost(
         `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
@@ -560,6 +573,9 @@ export async function handleExit(
       ctx.postIndex.delete(postId);
     }
   }
+
+  // Notify keep-alive that a session ended
+  keepAlive.sessionEnded();
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
@@ -597,6 +613,9 @@ export function killSession(
     }
   }
 
+  // Notify keep-alive that a session ended
+  keepAlive.sessionEnded();
+
   // Explicitly unpersist if requested
   if (unpersist) {
     ctx.unpersistSession(session.threadId);
@@ -615,6 +634,9 @@ export function killAllSessions(ctx: LifecycleContext): void {
   }
   ctx.sessions.clear();
   ctx.postIndex.clear();
+
+  // Force stop keep-alive
+  keepAlive.forceStop();
 }
 
 // ---------------------------------------------------------------------------

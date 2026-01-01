@@ -10,6 +10,7 @@ import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { printLogo } from './logo.js';
 import { VERSION } from './version.js';
+import { keepAlive } from './utils/keep-alive.js';
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -30,6 +31,8 @@ program
   .option('--chrome', 'Enable Claude in Chrome integration')
   .option('--no-chrome', 'Disable Claude in Chrome integration')
   .option('--worktree-mode <mode>', 'Git worktree mode: off, prompt, require (default: prompt)')
+  .option('--keep-alive', 'Enable system sleep prevention (default: enabled)')
+  .option('--no-keep-alive', 'Disable system sleep prevention')
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
   .parse();
@@ -60,6 +63,7 @@ async function main() {
     skipPermissions: opts.skipPermissions,
     chrome: opts.chrome,
     worktreeMode: opts.worktreeMode,
+    keepAlive: opts.keepAlive,
   };
 
   // Check if we need onboarding
@@ -83,6 +87,13 @@ async function main() {
   if (cliArgs.worktreeMode !== undefined) {
     newConfig.worktreeMode = cliArgs.worktreeMode;
   }
+  if (cliArgs.keepAlive !== undefined) {
+    newConfig.keepAlive = cliArgs.keepAlive;
+  }
+
+  // Apply keep-alive setting (default to true if not specified)
+  const keepAliveEnabled = newConfig.keepAlive !== false;
+  keepAlive.setEnabled(keepAliveEnabled);
 
   // Get first Mattermost platform
   const platformConfig = newConfig.platforms.find(p => p.type === 'mattermost') as MattermostPlatformConfig;
@@ -108,6 +119,9 @@ async function main() {
   }
   if (config.chrome) {
     console.log(`  🌐 ${dim('Chrome integration enabled')}`);
+  }
+  if (keepAliveEnabled) {
+    console.log(`  ☕ ${dim('Keep-alive enabled')}`);
   }
   console.log('');
 
