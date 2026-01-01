@@ -28,6 +28,7 @@ import * as reactions from './reactions.js';
 import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
 import * as worktreeModule from './worktree.js';
+import { persistLogger } from '../utils/logger.js';
 import * as contextPrompt from './context-prompt.js';
 import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
@@ -643,7 +644,7 @@ export class SessionManager {
     }
 
     const persisted = this.sessionStore.load();
-    console.log(`  [persist] Loaded ${persisted.size} session(s)`);
+    persistLogger.info(`Loaded ${persisted.size} session(s)`);
 
     if (persisted.size > 0) {
       console.log(`  🔄 Attempting to resume ${persisted.size} persisted session(s)...`);

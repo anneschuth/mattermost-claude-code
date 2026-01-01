@@ -14,6 +14,7 @@ import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
+import { exitLogger } from '../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -532,23 +533,23 @@ export async function handleExit(
   const session = ctx.sessions.get(sessionId);
   const shortId = sessionId.substring(0, 8);
 
-  console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
+  exitLogger.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
 
   if (!session) {
-    console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
+    exitLogger.debug(`Session ${shortId}... not found (already cleaned up)`);
     return;
   }
 
   // If we're intentionally restarting (e.g., !cd), don't clean up
   if (session.isRestarting) {
-    console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
+    exitLogger.debug(`Session ${shortId}... restarting, skipping cleanup`);
     session.isRestarting = false;
     return;
   }
 
   // If bot is shutting down, preserve persistence
   if (ctx.isShuttingDown) {
-    console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
+    exitLogger.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -562,7 +563,7 @@ export async function handleExit(
 
   // If session was interrupted, preserve for resume
   if (session.wasInterrupted) {
-    console.log(`  [exit] Session ${shortId}... exited after interrupt, preserving for resume`);
+    exitLogger.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -595,7 +596,7 @@ export async function handleExit(
 
   // For resumed sessions that exit with error, preserve for retry
   if (session.isResumed && code !== 0) {
-    console.log(`  [exit] Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
+    exitLogger.debug(`Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -618,7 +619,7 @@ export async function handleExit(
   }
 
   // Normal exit cleanup
-  console.log(`  [exit] Session ${shortId}... normal exit, cleaning up`);
+  exitLogger.debug(`Session ${shortId}... normal exit, cleaning up`);
 
   ctx.stopTyping(session);
   if (session.updateTimer) {
@@ -646,7 +647,7 @@ export async function handleExit(
   if (code === 0 || code === null) {
     ctx.unpersistSession(session.sessionId);
   } else {
-    console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
+    exitLogger.debug(`Session ${shortId}... non-zero exit, preserving for potential retry`);
   }
 
   console.log(`  ■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.2] - 2026-01-01
+
+### Fixed
+- **Unified CLI output formatting** - Replaced inconsistent `[exit]` and `[persist]` prefixes with emoji-based logging
+  - Exit messages now use 🚪 emoji (debug-only)
+  - Persistence messages now use 💾 emoji
+  - All internal state messages are now debug-only (visible with `DEBUG=1`)
+  - User-facing messages remain unchanged with their existing emojis
+
 ## [0.20.0] - 2026-01-01
 
 ### Added

@@ -53,3 +53,15 @@ export const mcpLogger = createLogger('[MCP]', true);
  * Uses stdout with indentation for visual hierarchy
  */
 export const wsLogger = createLogger('  [ws]', false);
+
+/**
+ * Pre-configured logger for session exit handling
+ * Uses 🚪 emoji for visual consistency with other CLI output
+ */
+export const exitLogger = createLogger('  🚪', false);
+
+/**
+ * Pre-configured logger for session persistence
+ * Uses 💾 emoji for visual consistency with other CLI output
+ */
+export const persistLogger = createLogger('  💾', false);
