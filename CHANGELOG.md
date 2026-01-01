@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Subagent layout issue** - Fixed a bug where starting a subagent could create an empty or near-empty message above the task list, causing a broken layout. The fix ensures pending content is flushed before posting subagent status messages.
+- **Session title/description not generated after worktree creation** - When a session started with a worktree prompt, the system prompt instructing Claude to generate session metadata was not passed to the restarted Claude CLI in the new worktree directory
 
 ## [0.21.0] - 2026-01-01
 

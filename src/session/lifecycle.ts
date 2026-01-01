@@ -73,7 +73,7 @@ function findPersistedByThreadId(
  * System prompt that instructs Claude to generate session titles and descriptions.
  * This is appended to Claude's system prompt via --append-system-prompt.
  */
-const CHAT_PLATFORM_PROMPT = `
+export const CHAT_PLATFORM_PROMPT = `
 You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
 
 SESSION METADATA: At the START of your first response, include metadata about this session:
