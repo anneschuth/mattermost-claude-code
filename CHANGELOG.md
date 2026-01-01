@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Keep-alive support** - Prevents system sleep while Claude sessions are active
+  - Automatically starts when first session begins, stops when all sessions end
+  - Cross-platform: macOS (`caffeinate`), Linux (`systemd-inhibit`), Windows (`SetThreadExecutionState`)
+  - Enabled by default, disable with `--no-keep-alive` CLI flag or `keepAlive: false` in config
+  - Shows `☕ Keep-alive enabled` in startup output
+
 ## [0.17.1] - 2025-12-31
 
 ### Fixed

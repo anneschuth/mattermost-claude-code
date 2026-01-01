@@ -16,6 +16,7 @@ export interface NewConfig {
   workingDir: string;
   chrome: boolean;
   worktreeMode: WorktreeMode;
+  keepAlive?: boolean; // Optional, defaults to true when undefined
   platforms: PlatformInstanceConfig[];
 }
 

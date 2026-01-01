@@ -27,4 +27,5 @@ export interface CliArgs {
   skipPermissions?: boolean;
   chrome?: boolean;
   worktreeMode?: WorktreeModeType;
+  keepAlive?: boolean;
 }
