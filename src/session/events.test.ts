@@ -113,6 +113,7 @@ function createTestSession(platform: PlatformClient): Session {
     wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
+    messageCount: 0,
   };
 }
 
@@ -127,6 +128,7 @@ function createEventContext(): EventContext {
     bumpTasksToBottom: mock(async (_session: Session) => {}),
     updateStickyMessage: mock(async () => {}),
     persistSession: mock((_session: Session) => {}),
+    updateSessionHeader: mock(async (_session: Session) => {}),
   };
 }
 

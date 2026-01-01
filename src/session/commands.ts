@@ -457,10 +457,18 @@ export async function updateSessionHeader(
     .map((u) => `@${u}`)
     .join(', ');
 
-  const rows = [
-    `| 📂 **Directory** | \`${shortDir}\` |`,
-    `| 👤 **Started by** | @${session.startedBy} |`,
-  ];
+  const rows: string[] = [];
+
+  // Add title and description if available
+  if (session.sessionTitle) {
+    rows.push(`| 📝 **Topic** | ${session.sessionTitle} |`);
+  }
+  if (session.sessionDescription) {
+    rows.push(`| 📄 **Summary** | _${session.sessionDescription}_ |`);
+  }
+
+  rows.push(`| 📂 **Directory** | \`${shortDir}\` |`);
+  rows.push(`| 👤 **Started by** | @${session.startedBy} |`);
 
   // Show worktree info if active
   if (session.worktreeInfo) {

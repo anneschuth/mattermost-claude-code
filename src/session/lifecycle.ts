@@ -71,7 +71,7 @@ function findPersistedByThreadId(
 
 /**
  * System prompt that instructs Claude to generate session titles and descriptions.
- * Used for both new sessions and resumed sessions (if no title exists).
+ * This is appended to Claude's system prompt via --append-system-prompt.
  */
 const CHAT_PLATFORM_PROMPT = `
 You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
@@ -100,6 +100,37 @@ Example: If the user asks "help me debug why the tests are failing", respond wit
 
 Then continue with your normal response.
 `.trim();
+
+/**
+ * Reminder to update session metadata, injected periodically into user messages.
+ */
+const SESSION_METADATA_REMINDER = `
+<system-reminder>
+If the session topic has shifted or evolved significantly, update the session metadata:
+[SESSION_TITLE: <current focus>]
+[SESSION_DESCRIPTION: <what you're working on now>]
+</system-reminder>
+`.trim();
+
+/**
+ * How often to inject the metadata reminder (every N messages).
+ */
+const METADATA_REMINDER_INTERVAL = 5;
+
+/**
+ * Check if a metadata reminder should be injected for this message.
+ * Returns the message with reminder appended if needed, otherwise returns original.
+ */
+export function maybeInjectMetadataReminder(
+  message: string,
+  session: { messageCount: number }
+): string {
+  // Only inject after the first message, at regular intervals
+  if (session.messageCount > 1 && session.messageCount % METADATA_REMINDER_INTERVAL === 0) {
+    return message + '\n\n' + SESSION_METADATA_REMINDER;
+  }
+  return message;
+}
 
 // ---------------------------------------------------------------------------
 // Session creation
@@ -210,6 +241,7 @@ export async function startSession(
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
+    messageCount: 0,  // Will be incremented when first message is sent
   };
 
   // Register session
@@ -271,6 +303,9 @@ export async function startSession(
       return;
     }
   }
+
+  // Increment message counter for first message
+  session.messageCount++;
 
   // Send the message to Claude (no context prompt, or no previous messages)
   claude.sendMessage(content);
@@ -391,6 +426,7 @@ export async function resumeSession(
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
     sessionTitle: state.sessionTitle,
     sessionDescription: state.sessionDescription,
+    messageCount: state.messageCount ?? 0,
   };
 
   // Register session
@@ -477,7 +513,15 @@ export async function sendFollowUp(
     // No thread history or context prompt declined, fall through to send directly
   }
 
-  session.claude.sendMessage(content);
+  // Increment message counter
+  session.messageCount++;
+
+  // Inject metadata reminder periodically
+  const messageToSend = typeof content === 'string'
+    ? maybeInjectMetadataReminder(content, session)
+    : content;
+
+  session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();
   ctx.startTyping(session);
 }
@@ -508,8 +552,17 @@ export async function resumePausedSession(
   // Wait a moment for the session to be ready, then send the message
   const session = ctx.findSessionByThreadId(threadId);
   if (session && session.claude.isRunning()) {
+    // Increment message counter
+    session.messageCount++;
+
     const content = await ctx.buildMessageContent(message, session.platform, files);
-    session.claude.sendMessage(content);
+
+    // Inject metadata reminder periodically
+    const messageToSend = typeof content === 'string'
+      ? maybeInjectMetadataReminder(content, session)
+      : content;
+
+    session.claude.sendMessage(messageToSend);
     session.lastActivityAt = new Date();
     ctx.startTyping(session);
   } else {

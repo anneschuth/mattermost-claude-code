@@ -153,6 +153,7 @@ export class SessionManager {
       appendContent: (s, t) => this.appendContent(s, t),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
       updateStickyMessage: () => this.updateStickyMessage(),
+      updateSessionHeader: (s) => this.updateSessionHeader(s),
       persistSession: (s) => this.persistSession(s),
     };
   }
@@ -378,6 +379,12 @@ export class SessionManager {
       }
     }
 
+    // Increment message counter
+    session.messageCount++;
+
+    // Inject metadata reminder periodically
+    messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
+
     // Send the message to Claude
     if (session.claude.isRunning()) {
       session.claude.sendMessage(messageToSend);
@@ -407,9 +414,15 @@ export class SessionManager {
     // Clear pending context prompt
     session.pendingContextPrompt = undefined;
 
+    // Increment message counter
+    session.messageCount++;
+
+    // Inject metadata reminder periodically
+    const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
+
     // Send the message without context
     if (session.claude.isRunning()) {
-      session.claude.sendMessage(queuedPrompt);
+      session.claude.sendMessage(messageToSend);
       this.startTyping(session);
     }
 
@@ -434,8 +447,14 @@ export class SessionManager {
 
     if (messageCount === 0) {
       // No previous messages, send directly
+      // Increment message counter
+      session.messageCount++;
+
+      // Inject metadata reminder periodically
+      const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
+
       if (session.claude.isRunning()) {
-        session.claude.sendMessage(queuedPrompt);
+        session.claude.sendMessage(messageToSend);
         this.startTyping(session);
       }
       return false;
@@ -593,6 +612,7 @@ export class SessionManager {
       timeoutPostId: session.timeoutPostId,
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
+      messageCount: session.messageCount,
     };
     this.sessionStore.save(session.sessionId, state);
   }

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Session title/description in thread header** - The session header table now displays the topic and summary at the top, providing immediate context within the thread itself
+- **Periodic metadata reminders** - Every 5 user messages, Claude receives a reminder to update the session title/description if the topic has evolved, ensuring metadata stays current as conversations progress
+
+### Changed
+- **Dynamic header updates** - Session header now updates automatically when Claude generates or changes the title/description
+
 ### Fixed
 - **Session title/description validation** - Reject placeholder values like "..." that Claude sometimes generates instead of real titles/descriptions
 

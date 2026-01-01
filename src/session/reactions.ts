@@ -75,6 +75,7 @@ export async function handleQuestionReaction(
       bumpTasksToBottom: async () => {},
       updateStickyMessage: async () => {},
       persistSession: () => {},
+      updateSessionHeader: async () => {},
     });
   } else {
     // All questions answered - send user message (NOT tool_result)

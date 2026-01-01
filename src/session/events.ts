@@ -32,6 +32,7 @@ export interface EventContext {
   appendContent: (session: Session, text: string) => void;
   bumpTasksToBottom: (session: Session) => Promise<void>;
   updateStickyMessage: () => Promise<void>;
+  updateSessionHeader: (session: Session) => Promise<void>;
   persistSession: (session: Session) => void;
 }
 
@@ -161,8 +162,9 @@ function formatEvent(
               session.sessionTitle = newTitle;
               // Persist the updated title
               ctx.persistSession(session);
-              // Update sticky message with new title (async, don't wait)
+              // Update sticky message and session header with new title (async, don't wait)
               ctx.updateStickyMessage().catch(() => {});
+              ctx.updateSessionHeader(session).catch(() => {});
             }
             // Remove the title marker from the displayed text
             text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
@@ -182,8 +184,9 @@ function formatEvent(
               session.sessionDescription = newDesc;
               // Persist the updated description
               ctx.persistSession(session);
-              // Update sticky message with new description (async, don't wait)
+              // Update sticky message and session header with new description (async, don't wait)
               ctx.updateStickyMessage().catch(() => {});
+              ctx.updateSessionHeader(session).catch(() => {});
             }
             // Remove the description marker from the displayed text
             text = text.replace(/\[SESSION_DESCRIPTION:\s*[^\]]+\]\s*/g, '').trim();
