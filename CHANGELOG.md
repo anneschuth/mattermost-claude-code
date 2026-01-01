@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Session header now displays truncated session ID for reference
   - Supports multiple resume emojis: 🔄 (arrows_counterclockwise), ▶️ (arrow_forward), 🔁 (repeat)
 
+### Fixed
+- **Sticky task list**: Task list now correctly stops being sticky when all tasks are completed
+  - Previously, the task list stayed at the bottom even after all tasks had `status: 'completed'`
+  - Now properly detects when all tasks are done using `todos.every(t => t.status === 'completed')`
+
 ## [0.17.1] - 2025-12-31
 
 ### Fixed

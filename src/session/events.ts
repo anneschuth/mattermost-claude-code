@@ -286,8 +286,9 @@ async function handleTodoWrite(
     return;
   }
 
-  // Tasks exist, so not completed
-  session.tasksCompleted = false;
+  // Check if all tasks are completed
+  const allCompleted = todos.every((t) => t.status === 'completed');
+  session.tasksCompleted = allCompleted;
 
   // Count progress
   const completed = todos.filter((t) => t.status === 'completed').length;
