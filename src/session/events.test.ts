@@ -13,10 +13,18 @@ function createMockPlatform() {
   let postIdCounter = 1;
 
   const mockFormatter: PlatformFormatter = {
+    formatBold: (text: string) => `**${text}**`,
+    formatItalic: (text: string) => `_${text}_`,
+    formatCode: (text: string) => `\`${text}\``,
     formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
-    formatDiff: (diff: string) => `\`\`\`diff\n${diff}\n\`\`\``,
-    formatCollapsible: (summary: string, content: string) => `<details><summary>${summary}</summary>\n${content}\n</details>`,
-    supportsCollapsible: true,
+    formatUserMention: (username: string) => `@${username}`,
+    formatLink: (text: string, url: string) => `[${text}](${url})`,
+    formatListItem: (text: string) => `- ${text}`,
+    formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
+    formatBlockquote: (text: string) => `> ${text}`,
+    formatHorizontalRule: () => '---',
+    formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+    escapeText: (text: string) => text,
   };
 
   const mockPlatform = {
