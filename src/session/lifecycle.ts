@@ -772,10 +772,15 @@ export async function killSession(
 
 /**
  * Kill all active sessions.
+ * If isShuttingDown is true, persists sessions before killing so they can resume on restart.
  */
 export function killAllSessions(ctx: LifecycleContext): void {
   for (const session of ctx.sessions.values()) {
     ctx.stopTyping(session);
+    // Persist session state before killing if we're shutting down gracefully
+    if (ctx.isShuttingDown) {
+      ctx.persistSession(session);
+    }
     session.claude.kill();
   }
   ctx.sessions.clear();

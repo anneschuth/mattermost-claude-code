@@ -997,9 +997,10 @@ export class SessionManager {
       }
     }
 
-    // Kill all sessions but preserve persistence
+    // Persist and kill all sessions for later resume
     for (const session of this.sessions.values()) {
       this.stopTyping(session);
+      this.persistSession(session);
       session.claude.kill();
     }
     this.sessions.clear();
