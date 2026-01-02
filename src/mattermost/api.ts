@@ -9,6 +9,10 @@
  * to support the MCP server running as a separate process.
  */
 
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('mm-api');
+
 export interface MattermostApiConfig {
   url: string;
   token: string;
@@ -176,7 +180,7 @@ export async function createInteractivePost(
       await addReaction(config, post.id, botUserId, emoji);
     } catch (err) {
       // Log error but continue - the post was created successfully
-      console.error(`  ⚠️ Failed to add reaction ${emoji}:`, err);
+      log.warn(`Failed to add reaction ${emoji}: ${err}`);
     }
   }
 

@@ -284,7 +284,8 @@ describe('createInteractivePost', () => {
   let consoleSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    consoleSpy = spyOn(console, 'error').mockImplementation(() => {});
+    // Logger uses console.warn for log.warn() calls
+    consoleSpy = spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -386,10 +387,9 @@ describe('createInteractivePost', () => {
     expect(result).toEqual(mockPost);
     // All three calls should have been made
     expect(mockFetch).toHaveBeenCalledTimes(3);
-    // Error should have been logged
+    // Warning should have been logged (logger uses console.warn with formatted message)
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Failed to add reaction'),
-      expect.any(Error)
+      expect.stringContaining('Failed to add reaction')
     );
   });
 
