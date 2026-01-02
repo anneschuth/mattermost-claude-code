@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Enhanced system prompt with chat platform context** - Claude Code now receives better context about its environment:
+  - Understands it's running as a bot via "Claude Threads" in a chat platform
+  - Knows how permissions work (emoji reactions 👍/👎)
+  - Aware of available user commands (`!stop`, `!escape`, `!invite`, `!kick`, `!cd`, `!permissions`)
+  - Understands multiple users can participate in a session
+  - This helps Claude provide better UX by understanding its environment and guiding users about available controls
+
 ## [0.24.1] - 2026-01-02
 
 ### Fixed
