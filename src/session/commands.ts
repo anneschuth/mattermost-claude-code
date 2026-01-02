@@ -22,6 +22,7 @@ import {
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
+import { logAndNotify, withErrorHandling } from './error-handler.js';
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -216,8 +217,7 @@ export async function changeDirectory(
     session.claude.start();
   } catch (err) {
     session.isRestarting = false;
-    console.error('  ❌ Failed to restart Claude:', err);
-    await session.platform.createPost(`❌ Failed to restart Claude: ${err}`, session.threadId);
+    await logAndNotify(err, { action: 'Restart Claude for directory change', session });
     return;
   }
 
@@ -402,11 +402,7 @@ export async function enableInteractivePermissions(
     session.claude.start();
   } catch (err) {
     session.isRestarting = false;
-    console.error('  ❌ Failed to restart Claude:', err);
-    await session.platform.createPost(
-      `❌ Failed to enable interactive permissions: ${err}`,
-      session.threadId
-    );
+    await logAndNotify(err, { action: 'Enable interactive permissions', session });
     return;
   }
 
@@ -574,9 +570,8 @@ export async function updateSessionHeader(
     ...rows,
   ].join('\n');
 
-  try {
-    await session.platform.updatePost(session.sessionStartPostId, msg);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update session header:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(session.sessionStartPostId, msg),
+    { action: 'Update session header', session }
+  );
 }

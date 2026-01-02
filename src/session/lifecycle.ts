@@ -14,6 +14,10 @@ import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
+import { logAndNotify, withErrorHandling } from './error-handler.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('lifecycle');
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -195,16 +199,14 @@ export async function startSession(
   }
 
   // Post initial session message
-  let post;
-  try {
-    post = await platform.createPost(
+  const post = await withErrorHandling(
+    () => platform.createPost(
       `${getLogo(VERSION)}\n\n*Starting session...*`,
       replyToPostId
-    );
-  } catch (err) {
-    console.error(`  ❌ Failed to create session post:`, err);
-    return;
-  }
+    ),
+    { action: 'Create session post' }
+  );
+  if (!post) return;
   const actualThreadId = replyToPostId || post.id;
   const sessionId = ctx.getSessionId(platformId, actualThreadId);
 
@@ -292,11 +294,9 @@ export async function startSession(
   try {
     claude.start();
   } catch (err) {
-    console.error('  ❌ Failed to start Claude:', err);
+    await logAndNotify(err, { action: 'Start Claude', session });
     ctx.stopTyping(session);
-    await session.platform.createPost(`❌ ${err}`, actualThreadId);
     ctx.sessions.delete(session.sessionId);
-    // Update sticky message after session failure
     await ctx.updateStickyMessage();
     return;
   }
@@ -370,16 +370,15 @@ export async function resumeSession(
 
   // Verify working directory exists
   if (!existsSync(state.workingDir)) {
-    console.log(`  ⚠️ Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
+    log.warn(`Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
     ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
-    try {
-      await platform.createPost(
+    await withErrorHandling(
+      () => platform.createPost(
         `⚠️ **Cannot resume session** - working directory no longer exists:\n\`${state.workingDir}\`\n\nPlease start a new session.`,
         state.threadId
-      );
-    } catch {
-      // Ignore if we can't post
-    }
+      ),
+      { action: 'Post resume failure notification' }
+    );
     return;
   }
 
@@ -473,7 +472,7 @@ export async function resumeSession(
 
   try {
     claude.start();
-    console.log(`  🔄 Resumed session ${shortId}... (@${state.startedBy})`);
+    log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
 
     // Post resume message
     await session.platform.createPost(
@@ -490,19 +489,18 @@ export async function resumeSession(
     // Update persistence with new activity time
     ctx.persistSession(session);
   } catch (err) {
-    console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
+    log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
     ctx.sessions.delete(sessionId);
     ctx.sessionStore.remove(sessionId);
 
     // Try to notify user
-    try {
-      await session.platform.createPost(
+    await withErrorHandling(
+      () => session.platform.createPost(
         `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
         state.threadId
-      );
-    } catch {
-      // Ignore if we can't post
-    }
+      ),
+      { action: 'Post resume failure notification', session }
+    );
 
     // Update sticky message after session removal
     await ctx.updateStickyMessage();
@@ -669,15 +667,14 @@ export async function handleExit(
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     // Notify user
-    try {
-      await session.platform.createPost(
+    await withErrorHandling(
+      () => session.platform.createPost(
         `ℹ️ Session paused. Send a new message to continue.`,
         session.threadId
-      );
-    } catch {
-      // Ignore
-    }
-    console.log(`  ⏸️ Session paused (${shortId}…) — ${ctx.sessions.size} active`);
+      ),
+      { action: 'Post session pause notification', session }
+    );
+    log.info(`Session paused (${shortId}…) — ${ctx.sessions.size} active`);
     // Update sticky channel message after session pause
     await ctx.updateStickyMessage();
     return;
@@ -698,14 +695,13 @@ export async function handleExit(
     ctx.sessions.delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
-    try {
-      await session.platform.createPost(
+    await withErrorHandling(
+      () => session.platform.createPost(
         `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
         session.threadId
-      );
-    } catch {
-      // Ignore
-    }
+      ),
+      { action: 'Post session resume failure', session }
+    );
     // Update sticky channel message after session failure
     await ctx.updateStickyMessage();
     return;
@@ -836,19 +832,19 @@ export async function cleanupIdleSessions(
       console.log(`  ⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
 
       // Post timeout message with resume hint and save the post ID
-      try {
-        const timeoutPost = await session.platform.createPost(
+      const timeoutPost = await withErrorHandling(
+        () => session.platform.createPost(
           `⏰ **Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n` +
           `💡 React with 🔄 to resume, or send a new message to continue.`,
           session.threadId
-        );
-
+        ),
+        { action: 'Post session timeout', session }
+      );
+      if (timeoutPost) {
         // Store the timeout post ID for resume via reaction
         session.timeoutPostId = timeoutPost.id;
         ctx.persistSession(session);
         ctx.registerPost(timeoutPost.id, session.threadId);
-      } catch {
-        // Ignore if we can't post
       }
 
       // Kill without unpersisting to allow resume

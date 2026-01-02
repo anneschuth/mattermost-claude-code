@@ -20,6 +20,7 @@ import {
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
+import { withErrorHandling, logAndNotify } from './error-handler.js';
 
 /**
  * Check if we should prompt the user to create a worktree.
@@ -154,13 +155,13 @@ export async function handleWorktreeSkip(
   }
 
   // Update the prompt post
-  if (session.worktreePromptPostId) {
-    try {
-      await session.platform.updatePost(session.worktreePromptPostId,
-        `✅ Continuing in main repo (skipped by @${username})`);
-    } catch (err) {
-      console.error('  ⚠️ Failed to update worktree prompt:', err);
-    }
+  const promptPostId = session.worktreePromptPostId;
+  if (promptPostId) {
+    await withErrorHandling(
+      () => session.platform.updatePost(promptPostId,
+        `✅ Continuing in main repo (skipped by @${username})`),
+      { action: 'Update worktree prompt', session }
+    );
   }
 
   // Clear pending state
@@ -263,13 +264,13 @@ export async function createAndSwitchToWorktree(
     await createGitWorktree(repoRoot, branch, worktreePath);
 
     // Update the prompt post if it exists
-    if (session.worktreePromptPostId) {
-      try {
-        await session.platform.updatePost(session.worktreePromptPostId,
-          `✅ Created worktree for \`${branch}\``);
-      } catch (err) {
-        console.error('  ⚠️ Failed to update worktree prompt:', err);
-      }
+    const worktreePromptId = session.worktreePromptPostId;
+    if (worktreePromptId) {
+      await withErrorHandling(
+        () => session.platform.updatePost(worktreePromptId,
+          `✅ Created worktree for \`${branch}\``),
+        { action: 'Update worktree prompt', session }
+      );
     }
 
     // Clear pending state
@@ -524,11 +525,7 @@ export async function removeWorktreeCommand(
 
     console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
   } catch (err) {
-    console.error(`  ❌ Failed to remove worktree:`, err);
-    await session.platform.createPost(
-      `❌ Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
-      session.threadId
-    );
+    await logAndNotify(err, { action: 'Remove worktree', session });
   }
 }
 

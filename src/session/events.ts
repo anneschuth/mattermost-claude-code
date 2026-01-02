@@ -18,6 +18,7 @@ import {
   shouldFlushEarly,
   MIN_BREAK_THRESHOLD,
 } from './streaming.js';
+import { withErrorHandling } from './error-handler.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -356,14 +357,14 @@ async function handleTodoWrite(
   if (!todos || todos.length === 0) {
     // Clear tasks display if empty
     session.tasksCompleted = true;
-    if (session.tasksPostId) {
-      try {
-        const completedMsg = '---\n📋 ~~Tasks~~ *(completed)*';
-        await session.platform.updatePost(session.tasksPostId, completedMsg);
-        session.lastTasksContent = completedMsg;
-      } catch (err) {
-        console.error('  ⚠️ Failed to update tasks:', err);
-      }
+    const tasksPostId = session.tasksPostId;
+    if (tasksPostId) {
+      const completedMsg = '---\n📋 ~~Tasks~~ *(completed)*';
+      await withErrorHandling(
+        () => session.platform.updatePost(tasksPostId, completedMsg),
+        { action: 'Update tasks', session }
+      );
+      session.lastTasksContent = completedMsg;
     }
     return;
   }
@@ -441,25 +442,30 @@ async function handleTodoWrite(
   const displayMessage = session.tasksMinimized ? minimizedMessage : fullMessage;
 
   // Update or create tasks post
-  try {
-    if (session.tasksPostId) {
-      await session.platform.updatePost(session.tasksPostId, displayMessage);
-    } else {
-      // Create with toggle emoji reaction so users can click to collapse
-      const post = await session.platform.createInteractivePost(
+  const existingTasksPostId = session.tasksPostId;
+  if (existingTasksPostId) {
+    await withErrorHandling(
+      () => session.platform.updatePost(existingTasksPostId, displayMessage),
+      { action: 'Update tasks', session }
+    );
+  } else {
+    // Create with toggle emoji reaction so users can click to collapse
+    const post = await withErrorHandling(
+      () => session.platform.createInteractivePost(
         displayMessage,
         [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
         session.threadId
-      );
+      ),
+      { action: 'Create tasks post', session }
+    );
+    if (post) {
       session.tasksPostId = post.id;
       // Register the task post so reaction clicks are routed to this session
       ctx.registerPost(post.id, session.threadId);
     }
-    // Update sticky message with new task progress
-    ctx.updateStickyMessage().catch(() => {});
-  } catch (err) {
-    console.error('  ⚠️ Failed to update tasks:', err);
   }
+  // Update sticky message with new task progress
+  ctx.updateStickyMessage().catch(() => {});
 }
 
 /**
@@ -482,14 +488,14 @@ async function handleTaskStart(
   // Post subagent status
   const message = `🤖 **Subagent** *(${subagentType})*\n` + `> ${description}\n` + `⏳ Running...`;
 
-  try {
-    const post = await session.platform.createPost(message, session.threadId);
+  const post = await withErrorHandling(
+    () => session.platform.createPost(message, session.threadId),
+    { action: 'Post subagent status', session }
+  );
+  if (post) {
     session.activeSubagents.set(toolUseId, post.id);
-
     // Bump task list to stay below subagent messages
     await ctx.bumpTasksToBottom(session);
-  } catch (err) {
-    console.error('  ⚠️ Failed to post subagent status:', err);
   }
 }
 
@@ -501,17 +507,14 @@ async function handleTaskComplete(
   toolUseId: string,
   postId: string
 ): Promise<void> {
-  try {
-    await session.platform.updatePost(
-      postId,
-      session.activeSubagents.has(toolUseId)
-        ? `🤖 **Subagent** ✅ *completed*`
-        : `🤖 **Subagent** ✅`
-    );
-    session.activeSubagents.delete(toolUseId);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update subagent completion:', err);
-  }
+  const completionMessage = session.activeSubagents.has(toolUseId)
+    ? `🤖 **Subagent** ✅ *completed*`
+    : `🤖 **Subagent** ✅`;
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, completionMessage),
+    { action: 'Update subagent completion', session }
+  );
+  session.activeSubagents.delete(toolUseId);
 }
 
 // ---------------------------------------------------------------------------

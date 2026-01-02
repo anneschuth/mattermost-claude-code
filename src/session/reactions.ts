@@ -13,6 +13,7 @@ import {
   getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
+import { withErrorHandling } from './error-handler.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -54,11 +55,10 @@ export async function handleQuestionReaction(
   if (ctx.debug) console.log(`  💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
-  try {
-    await session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update answered question:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`),
+    { action: 'Update answered question', session }
+  );
 
   // Move to next question or finish
   session.pendingQuestionSet.currentIndex++;
@@ -125,14 +125,13 @@ export async function handleApprovalReaction(
   console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
   // Update the post to show the decision
-  try {
-    const statusMessage = isApprove
-      ? `✅ **Plan approved** by @${username} - starting implementation...`
-      : `❌ **Changes requested** by @${username}`;
-    await session.platform.updatePost(postId, statusMessage);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update approval post:', err);
-  }
+  const statusMessage = isApprove
+    ? `✅ **Plan approved** by @${username} - starting implementation...`
+    : `❌ **Changes requested** by @${username}`;
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, statusMessage),
+    { action: 'Update approval post', session }
+  );
 
   // Clear pending approval and mark as approved
   session.pendingApproval = null;
@@ -255,11 +254,10 @@ export async function handleTaskToggleReaction(
   const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
 
-  try {
-    await session.platform.updatePost(session.tasksPostId, displayMessage);
-  } catch (err) {
-    console.error('  ⚠️ Failed to toggle tasks display:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(session.tasksPostId, displayMessage),
+    { action: 'Toggle tasks display', session }
+  );
 
   return true;
 }

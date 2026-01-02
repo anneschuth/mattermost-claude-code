@@ -8,6 +8,7 @@
 import type { Session } from './types.js';
 import type { ThreadMessage } from '../platform/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
+import { withErrorHandling } from './error-handler.js';
 
 // Context timeout in milliseconds (30 seconds)
 export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
@@ -235,11 +236,10 @@ export async function updateContextPromptPost(
       : `✅ Including last ${selection} messages`;
   }
 
-  try {
-    await session.platform.updatePost(postId, message);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update context prompt post:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, message),
+    { action: 'Update context prompt post', session }
+  );
 }
 
 /**
