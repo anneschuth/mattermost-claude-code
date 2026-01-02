@@ -308,7 +308,7 @@ async function main() {
       if (session.hasPendingWorktreePrompt(threadRoot)) {
         // Only session owner can respond
         if (session.isUserAllowedInSession(threadRoot, username)) {
-          const handled = await session.handleWorktreeBranchResponse(threadRoot, content, username);
+          const handled = await session.handleWorktreeBranchResponse(threadRoot, content, username, post.id);
           if (handled) return;
         }
       }

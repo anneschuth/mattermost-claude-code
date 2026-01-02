@@ -110,6 +110,7 @@ export async function handleWorktreeBranchResponse(
   session: Session,
   branchName: string,
   username: string,
+  responsePostId: string,
   createAndSwitch: (threadId: string, branch: string, username: string) => Promise<void>
 ): Promise<boolean> {
   if (!session.pendingWorktreePrompt) return false;
@@ -128,6 +129,9 @@ export async function handleWorktreeBranchResponse(
     return true; // We handled it, but need another response
   }
 
+  // Store the response post ID so we can exclude it from context prompt
+  session.worktreeResponsePostId = responsePostId;
+
   // Create and switch to worktree
   await createAndSwitch(session.threadId, branchName, username);
   return true;
@@ -140,7 +144,7 @@ export async function handleWorktreeSkip(
   session: Session,
   username: string,
   persistSession: (session: Session) => void,
-  offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>
+  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>
 ): Promise<void> {
   if (!session.pendingWorktreePrompt) return;
 
@@ -191,7 +195,7 @@ export async function createAndSwitchToWorktree(
     persistSession: (session: Session) => void;
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
-    offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
+    offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
     appendSystemPrompt?: string;
     registerPost: (postId: string, threadId: string) => void;
   }
@@ -343,12 +347,16 @@ export async function createAndSwitchToWorktree(
     // - If wasPending (worktree prompt at session start): use queuedPrompt
     // - Otherwise (mid-session worktree): use firstPrompt
     // Use offerContextPrompt to allow user to include thread history
+    // Exclude the worktree response post from context (it's just the branch name)
     if (session.claude.isRunning()) {
+      const excludePostId = session.worktreeResponsePostId;
       if (wasPending && queuedPrompt) {
-        await options.offerContextPrompt(session, queuedPrompt);
+        await options.offerContextPrompt(session, queuedPrompt, excludePostId);
       } else if (!wasPending && session.firstPrompt) {
-        await options.offerContextPrompt(session, session.firstPrompt);
+        await options.offerContextPrompt(session, session.firstPrompt, excludePostId);
       }
+      // Clear the stored response post ID after use
+      session.worktreeResponsePostId = undefined;
     }
 
     console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);

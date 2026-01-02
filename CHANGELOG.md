@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Auto-include single-message thread context** - When starting a session in a thread that has only one prior message (the thread starter), it now auto-includes that message as context without prompting. Previously, this would trigger an unnecessary "Include 1 message as context?" prompt with reaction options. Now, single-message context is silently included, while multi-message threads still prompt for confirmation.
+- **Worktree branch response excluded from context count** - When a user responds to a worktree branch prompt (e.g., typing "fix/my-branch"), that response is now excluded from the thread context count and messages. Previously, this response was incorrectly counted as conversation context, leading to misleading "Include 2 messages?" prompts when only the original thread starter was meaningful context.
 
 ## [0.24.0] - 2026-01-02
 

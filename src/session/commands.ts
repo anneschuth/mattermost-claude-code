@@ -71,7 +71,7 @@ export interface CommandContext {
   persistSession: (session: Session) => void;
   killSession: (threadId: string) => Promise<void>;
   registerPost: (postId: string, threadId: string) => void;
-  offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
+  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
