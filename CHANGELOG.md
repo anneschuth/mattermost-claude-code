@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Understands multiple users can participate in a session
   - This helps Claude provide better UX by understanding its environment and guiding users about available controls
 
+### Fixed
+- **Session title/description markers visible in chat** - Fixed issue where `[SESSION_TITLE: ...]` and `[SESSION_DESCRIPTION: ...]` markers would appear in chat messages when validation failed. Markers are now always stripped from displayed text regardless of validation outcome.
+- **Session title/description length validation** - Added maximum length limits (title: 50 chars, description: 100 chars) to prevent overly long metadata from cluttering the session header and sticky message.
+
 ## [0.24.1] - 2026-01-02
 
 ### Fixed

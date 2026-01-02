@@ -152,8 +152,9 @@ function formatEvent(
           const titleMatch = text.match(/\[SESSION_TITLE:\s*([^\]]+)\]/);
           if (titleMatch) {
             const newTitle = titleMatch[1].trim();
-            // Validate title: reject placeholders like "...", empty, or too short
+            // Validate title: reject placeholders, too short, or too long (50 chars ~7 words)
             const isValidTitle = newTitle.length >= 3 &&
+              newTitle.length <= 50 &&
               !/^\.+$/.test(newTitle) &&
               !/^…+$/.test(newTitle) &&
               newTitle !== '<short title>' &&
@@ -166,16 +167,17 @@ function formatEvent(
               ctx.updateStickyMessage().catch(() => {});
               ctx.updateSessionHeader(session).catch(() => {});
             }
-            // Remove the title marker from the displayed text
-            text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
           }
+          // Always remove the title marker from displayed text (even if validation failed)
+          text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
 
           // Extract session description if present: [SESSION_DESCRIPTION: ...]
           const descMatch = text.match(/\[SESSION_DESCRIPTION:\s*([^\]]+)\]/);
           if (descMatch) {
             const newDesc = descMatch[1].trim();
-            // Validate description: reject placeholders like "...", empty, or too short
+            // Validate description: reject placeholders, too short, or too long (100 chars)
             const isValidDesc = newDesc.length >= 5 &&
+              newDesc.length <= 100 &&
               !/^\.+$/.test(newDesc) &&
               !/^…+$/.test(newDesc) &&
               newDesc !== '<brief description>' &&
@@ -188,9 +190,9 @@ function formatEvent(
               ctx.updateStickyMessage().catch(() => {});
               ctx.updateSessionHeader(session).catch(() => {});
             }
-            // Remove the description marker from the displayed text
-            text = text.replace(/\[SESSION_DESCRIPTION:\s*[^\]]+\]\s*/g, '').trim();
           }
+          // Always remove the description marker from displayed text (even if validation failed)
+          text = text.replace(/\[SESSION_DESCRIPTION:\s*[^\]]+\]\s*/g, '').trim();
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
