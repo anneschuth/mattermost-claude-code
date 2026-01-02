@@ -104,8 +104,6 @@ describe('buildStickyMessage', () => {
     expect(result).toContain('`0/5 sessions`');
     // Should contain uptime
     expect(result).toMatch(/`⏱️ <?\d+[mhd]`/);
-    // Should contain hostname
-    expect(result).toMatch(/`💻 .+`/);
   });
 
   it('shows Chrome status when enabled', async () => {

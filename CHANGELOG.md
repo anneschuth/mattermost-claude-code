@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.1] - 2026-01-02
+
+### Fixed
+- **Sticky message status bar layout** - Moved status bar above the "Active Claude Threads" header for better visual hierarchy
+- **Shorter status bar** - Removed hostname from status bar to reduce clutter
+
 ## [0.24.0] - 2026-01-02
 
 ### Added
