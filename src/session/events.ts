@@ -663,6 +663,7 @@ function updateUsageStats(
   let primaryModel = '';
   let highestCost = 0;
   let contextWindowSize = 200000; // Default
+  let contextTokens = 0; // Primary model's context usage estimate
 
   const modelUsage: Record<string, ModelTokenUsage> = {};
   let totalTokensUsed = 0;
@@ -677,7 +678,7 @@ function updateUsageStats(
       costUSD: usage.costUSD,
     };
 
-    // Sum all tokens
+    // Sum all tokens (for billing display)
     totalTokensUsed += usage.inputTokens + usage.outputTokens +
       usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
 
@@ -686,6 +687,8 @@ function updateUsageStats(
       highestCost = usage.costUSD;
       primaryModel = modelId;
       contextWindowSize = usage.contextWindow;
+      // Context estimate: input + cache read (what's actually in context window)
+      contextTokens = usage.inputTokens + usage.cacheReadInputTokens;
     }
   }
 
@@ -694,6 +697,7 @@ function updateUsageStats(
     primaryModel,
     modelDisplayName: getModelDisplayName(primaryModel),
     contextWindowSize,
+    contextTokens,
     totalTokensUsed,
     totalCostUSD: result.total_cost_usd || 0,
     modelUsage,

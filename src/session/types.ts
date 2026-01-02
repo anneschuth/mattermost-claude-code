@@ -33,7 +33,9 @@ export interface SessionUsageStats {
   modelDisplayName: string;
   /** Maximum context window size */
   contextWindowSize: number;
-  /** Total tokens used (input + output across all models) */
+  /** Estimated context tokens (primary model input + cache read only) */
+  contextTokens: number;
+  /** Total tokens used (input + output across all models, for billing display) */
   totalTokensUsed: number;
   /** Total cost in USD */
   totalCostUSD: number;

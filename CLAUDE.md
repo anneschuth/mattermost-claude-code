@@ -403,3 +403,4 @@ Claude CLI emits JSON events. Key event types:
 - [ ] Support file uploads via Mattermost attachments
 - [ ] Keep task list at the bottommost message (always update to latest position)
 - [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
+- [ ] Accurate context usage: Use Claude Code's status line script as a data source for real-time `context_window.current_usage` instead of cumulative billing tokens from stream-json

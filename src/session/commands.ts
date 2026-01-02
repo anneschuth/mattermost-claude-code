@@ -34,7 +34,8 @@ import { keepAlive } from '../utils/keep-alive.js';
  */
 function formatContextBar(percent: number): string {
   const totalBlocks = 10;
-  const filledBlocks = Math.round((percent / 100) * totalBlocks);
+  // Clamp filledBlocks to [0, totalBlocks] to handle >100% usage
+  const filledBlocks = Math.min(totalBlocks, Math.max(0, Math.round((percent / 100) * totalBlocks)));
   const emptyBlocks = totalBlocks - filledBlocks;
 
   // Use different indicators based on usage level
@@ -499,8 +500,8 @@ export async function updateSessionHeader(
   if (session.usageStats) {
     const stats = session.usageStats;
     statusItems.push(`\`🤖 ${stats.modelDisplayName}\``);
-    // Calculate context usage percentage
-    const contextPercent = Math.round((stats.totalTokensUsed / stats.contextWindowSize) * 100);
+    // Calculate context usage percentage (using primary model's context tokens)
+    const contextPercent = Math.round((stats.contextTokens / stats.contextWindowSize) * 100);
     const contextBar = formatContextBar(contextPercent);
     statusItems.push(`\`${contextBar} ${contextPercent}%\``);
     // Show cost

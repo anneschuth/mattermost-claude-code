@@ -326,6 +326,8 @@ describe('handleEvent with result event (usage stats)', () => {
     expect(session.usageStats?.modelDisplayName).toBe('Opus 4.5');
     expect(session.usageStats?.contextWindowSize).toBe(200000);
     expect(session.usageStats?.totalCostUSD).toBe(0.072784);
+    // Context tokens (primary model only): 2471 + 12671 = 15142
+    expect(session.usageStats?.contextTokens).toBe(15142);
     // Total tokens: 2471+193+12671+7378 + 2341+163+0+0 = 25217
     expect(session.usageStats?.totalTokensUsed).toBe(25217);
   });
