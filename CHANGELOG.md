@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-01-02
+
+### Added
+- **Sticky message status bar** - Added a compact status line to the channel sticky message showing system-level info:
+  - Bot version (`v0.22.0`)
+  - Active sessions count (`3/5 sessions`)
+  - Permission mode (`🔐 Interactive` or `⚡ Auto`)
+  - Worktree mode (`🌿 Worktree: always/never`) - only shown if not default 'prompt'
+  - Chrome status (`🌐 Chrome`) - only when enabled
+  - Debug mode (`🐛 Debug`) - only when enabled
+  - Battery level (`🔋 85%` or `🔌 AC`) - macOS and Linux
+  - Bot uptime (`⏱️ 2h15m`) - how long the bot has been running
+  - Working directory (`📂 ~/projects`)
+  - Hostname (`💻 hostname`) - machine name for identification
+
 ## [0.22.1] - 2026-01-01
 
 ### Fixed

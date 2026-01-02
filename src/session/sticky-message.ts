@@ -6,9 +6,28 @@
  * The message is updated whenever sessions start or end.
  */
 
+import { hostname } from 'os';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { SessionStore } from '../persistence/session-store.js';
+import { formatBatteryStatus } from '../utils/battery.js';
+import { formatUptime } from '../utils/uptime.js';
+import { VERSION } from '../version.js';
+
+// Bot start time for uptime tracking
+const botStartedAt = new Date();
+
+/**
+ * Configuration for sticky message status bar
+ */
+export interface StickyMessageConfig {
+  maxSessions: number;
+  chromeEnabled: boolean;
+  skipPermissions: boolean;
+  worktreeMode: 'prompt' | 'always' | 'never';
+  workingDir: string;
+  debug: boolean;
+}
 
 // Store sticky post IDs per platform (in-memory cache)
 const stickyPostIds: Map<string, string> = new Map();
@@ -86,6 +105,64 @@ function getSessionTopic(session: Session): string {
 }
 
 /**
+ * Build the status bar for the sticky message.
+ * Shows system-level info: version, sessions, settings, battery, uptime, hostname
+ */
+async function buildStatusBar(
+  sessionCount: number,
+  config: StickyMessageConfig
+): Promise<string> {
+  const items: string[] = [];
+
+  // Version
+  items.push(`\`v${VERSION}\``);
+
+  // Session count
+  items.push(`\`${sessionCount}/${config.maxSessions} sessions\``);
+
+  // Permission mode
+  const permMode = config.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+  items.push(`\`${permMode}\``);
+
+  // Worktree mode (only show if not default 'prompt')
+  if (config.worktreeMode === 'always') {
+    items.push('`🌿 Worktree: always`');
+  } else if (config.worktreeMode === 'never') {
+    items.push('`🌿 Worktree: never`');
+  }
+
+  // Chrome status
+  if (config.chromeEnabled) {
+    items.push('`🌐 Chrome`');
+  }
+
+  // Debug mode
+  if (config.debug) {
+    items.push('`🐛 Debug`');
+  }
+
+  // Battery status (if available)
+  const battery = await formatBatteryStatus();
+  if (battery) {
+    items.push(`\`${battery}\``);
+  }
+
+  // Bot uptime
+  const uptime = formatUptime(botStartedAt);
+  items.push(`\`⏱️ ${uptime}\``);
+
+  // Working directory (shortened)
+  const shortDir = config.workingDir.replace(process.env.HOME || '', '~');
+  items.push(`\`📂 ${shortDir}\``);
+
+  // Hostname
+  const host = hostname();
+  items.push(`\`💻 ${host}\``);
+
+  return items.join(' · ');
+}
+
+/**
  * Truncate and clean a prompt for display as a thread topic
  */
 function formatTopicFromPrompt(prompt: string | undefined): string {
@@ -114,19 +191,25 @@ function formatTopicFromPrompt(prompt: string | undefined): string {
 /**
  * Build the sticky message content showing all active sessions
  */
-export function buildStickyMessage(
+export async function buildStickyMessage(
   sessions: Map<string, Session>,
-  platformId: string
-): string {
+  platformId: string,
+  config: StickyMessageConfig
+): Promise<string> {
   // Filter sessions for this platform
   const platformSessions = [...sessions.values()].filter(
     s => s.platformId === platformId
   );
 
+  // Build status bar (shown even when no sessions)
+  const statusBar = await buildStatusBar(platformSessions.length, config);
+
   if (platformSessions.length === 0) {
     return [
       '---',
       '**Active Claude Threads**',
+      '',
+      statusBar,
       '',
       '_No active sessions_',
       '',
@@ -141,6 +224,8 @@ export function buildStickyMessage(
   const lines: string[] = [
     '---',
     `**Active Claude Threads** (${count})`,
+    '',
+    statusBar,
     '',
   ];
 
@@ -179,7 +264,8 @@ const DEBUG = process.env.DEBUG === '1';
  */
 export async function updateStickyMessage(
   platform: PlatformClient,
-  sessions: Map<string, Session>
+  sessions: Map<string, Session>,
+  config: StickyMessageConfig
 ): Promise<void> {
   const platformId = platform.platformId;
 
@@ -195,7 +281,7 @@ export async function updateStickyMessage(
   updateLocks.set(platformId, lock);
 
   try {
-    await updateStickyMessageImpl(platform, sessions);
+    await updateStickyMessageImpl(platform, sessions, config);
   } finally {
     if (releaseLock) releaseLock();
     updateLocks.delete(platformId);
@@ -207,7 +293,8 @@ export async function updateStickyMessage(
  */
 async function updateStickyMessageImpl(
   platform: PlatformClient,
-  sessions: Map<string, Session>
+  sessions: Map<string, Session>,
+  config: StickyMessageConfig
 ): Promise<void> {
   if (DEBUG) {
     const platformSessions = [...sessions.values()].filter(s => s.platformId === platform.platformId);
@@ -217,7 +304,7 @@ async function updateStickyMessageImpl(
     }
   }
 
-  const content = buildStickyMessage(sessions, platform.platformId);
+  const content = await buildStickyMessage(sessions, platform.platformId, config);
   const existingPostId = stickyPostIds.get(platform.platformId);
   const shouldBump = needsBump.get(platform.platformId) ?? false;
 
@@ -301,10 +388,11 @@ async function updateStickyMessageImpl(
  */
 export async function updateAllStickyMessages(
   platforms: Map<string, PlatformClient>,
-  sessions: Map<string, Session>
+  sessions: Map<string, Session>,
+  config: StickyMessageConfig
 ): Promise<void> {
   const updates = [...platforms.values()].map(platform =>
-    updateStickyMessage(platform, sessions)
+    updateStickyMessage(platform, sessions, config)
   );
   await Promise.all(updates);
 }
