@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-01-02
+
+### Added
+- **Show active task in sticky message** - When Claude is working on tasks, the currently active (in-progress) task is now displayed in the sticky session message. This gives visibility into what Claude is currently working on without scrolling through the thread.
+
 ## [0.25.0] - 2026-01-02
 
 ### Added
