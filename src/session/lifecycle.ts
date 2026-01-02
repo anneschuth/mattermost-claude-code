@@ -76,6 +76,8 @@ function findPersistedByThreadId(
 export const CHAT_PLATFORM_PROMPT = `
 You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
 
+**Claude Threads Version:** ${VERSION}
+
 ## How This Works
 - You are Claude Code running as a bot via "Claude Threads"
 - Your responses appear as messages in a chat thread
