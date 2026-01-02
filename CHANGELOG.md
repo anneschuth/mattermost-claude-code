@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-01-02
+
 ### Added
 - **Enhanced system prompt with chat platform context** - Claude Code now receives better context about its environment:
   - Understands it's running as a bot via "Claude Threads" in a chat platform
