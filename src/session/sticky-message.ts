@@ -13,6 +13,9 @@ import type { WorktreeMode } from '../config.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { VERSION } from '../version.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('sticky');
 
 // Bot start time for uptime tracking
 const botStartedAt = new Date();
@@ -156,7 +159,7 @@ export function initialize(store: SessionStore): void {
   }
 
   if (persistedIds.size > 0) {
-    console.log(`  📌 Restored ${persistedIds.size} sticky post ID(s) from persistence`);
+    log.info(`📌 Restored ${persistedIds.size} sticky post ID(s) from persistence`);
   }
 }
 
@@ -381,8 +384,6 @@ export async function buildStickyMessage(
   return lines.join('\n');
 }
 
-const DEBUG = process.env.DEBUG === '1';
-
 /**
  * Update the sticky channel message for a platform.
  * If someone posted in the channel since last update, deletes and recreates at bottom.
@@ -424,41 +425,37 @@ async function updateStickyMessageImpl(
   sessions: Map<string, Session>,
   config: StickyMessageConfig
 ): Promise<void> {
-  if (DEBUG) {
-    const platformSessions = [...sessions.values()].filter(s => s.platformId === platform.platformId);
-    console.log(`[sticky] updateStickyMessage called for ${platform.platformId}, ${platformSessions.length} sessions`);
-    for (const s of platformSessions) {
-      console.log(`[sticky]   - ${s.sessionId}: title="${s.sessionTitle}" firstPrompt="${s.firstPrompt?.substring(0, 30)}..."`);
-    }
+  const platformSessions = [...sessions.values()].filter(s => s.platformId === platform.platformId);
+  log.debug(`updateStickyMessage for ${platform.platformId}, ${platformSessions.length} sessions`);
+  for (const s of platformSessions) {
+    log.debug(`  - ${s.sessionId}: title="${s.sessionTitle}" firstPrompt="${s.firstPrompt?.substring(0, 30)}..."`);
   }
 
   const content = await buildStickyMessage(sessions, platform.platformId, config);
   const existingPostId = stickyPostIds.get(platform.platformId);
   const shouldBump = needsBump.get(platform.platformId) ?? false;
 
-  if (DEBUG) {
-    console.log(`[sticky] existingPostId: ${existingPostId || '(none)'}, needsBump: ${shouldBump}`);
-    console.log(`[sticky] content preview: ${content.substring(0, 100).replace(/\n/g, '\\n')}...`);
-  }
+  log.debug(`existingPostId: ${existingPostId || '(none)'}, needsBump: ${shouldBump}`);
+  log.debug(`content preview: ${content.substring(0, 100).replace(/\n/g, '\\n')}...`);
 
   try {
     // If we have an existing post and no bump is needed, just update in place
     if (existingPostId && !shouldBump) {
-      if (DEBUG) console.log(`[sticky] Updating existing post in place...`);
+      log.debug(`Updating existing post in place...`);
       try {
         await platform.updatePost(existingPostId, content);
         // Re-pin to ensure it stays pinned (defensive - pin status can be lost)
         try {
           await platform.pinPost(existingPostId);
-          if (DEBUG) console.log(`[sticky] Re-pinned post`);
+          log.debug(`Re-pinned post`);
         } catch (pinErr) {
-          if (DEBUG) console.log(`[sticky] Re-pin failed (might already be pinned):`, pinErr);
+          log.debug(`Re-pin failed (might already be pinned): ${pinErr}`);
         }
-        if (DEBUG) console.log(`[sticky] Updated successfully`);
+        log.debug(`Updated successfully`);
         return;
       } catch (err) {
         // Post might have been deleted, fall through to create new one
-        if (DEBUG) console.log(`[sticky] Update failed, will create new:`, err);
+        log.debug(`Update failed, will create new: ${err}`);
       }
     }
 
@@ -467,36 +464,36 @@ async function updateStickyMessageImpl(
 
     // Delete existing sticky post if it exists
     if (existingPostId) {
-      if (DEBUG) console.log(`[sticky] Unpinning and deleting existing post ${existingPostId.substring(0, 8)}...`);
+      log.debug(`Unpinning and deleting existing post ${existingPostId.substring(0, 8)}...`);
       try {
         // Unpin first, then delete
         await platform.unpinPost(existingPostId);
-        if (DEBUG) console.log(`[sticky] Unpinned successfully`);
+        log.debug(`Unpinned successfully`);
       } catch (err) {
         // Post might already be unpinned or deleted, that's fine
-        if (DEBUG) console.log(`[sticky] Unpin failed (probably already unpinned):`, err);
+        log.debug(`Unpin failed (probably already unpinned): ${err}`);
       }
       try {
         await platform.deletePost(existingPostId);
-        if (DEBUG) console.log(`[sticky] Deleted successfully`);
+        log.debug(`Deleted successfully`);
       } catch (err) {
         // Post might already be deleted, that's fine
-        if (DEBUG) console.log(`[sticky] Delete failed (probably already deleted):`, err);
+        log.debug(`Delete failed (probably already deleted): ${err}`);
       }
       stickyPostIds.delete(platform.platformId);
     }
 
     // Create new sticky post at the bottom (no threadId = channel post)
-    if (DEBUG) console.log(`[sticky] Creating new post...`);
+    log.debug(`Creating new post...`);
     const post = await platform.createPost(content);
     stickyPostIds.set(platform.platformId, post.id);
 
     // Pin the post to keep it visible
     try {
       await platform.pinPost(post.id);
-      if (DEBUG) console.log(`[sticky] Pinned post successfully`);
+      log.debug(`Pinned post successfully`);
     } catch (err) {
-      if (DEBUG) console.log(`[sticky] Failed to pin post:`, err);
+      log.debug(`Failed to pin post: ${err}`);
     }
 
     // Persist the new sticky post ID
@@ -504,9 +501,9 @@ async function updateStickyMessageImpl(
       sessionStore.saveStickyPostId(platform.platformId, post.id);
     }
 
-    console.log(`  📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
+    log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
   } catch (err) {
-    console.error(`  ⚠️ Failed to update sticky message for ${platform.platformId}:`, err);
+    log.error(`⚠️ Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
   }
 }
 
@@ -577,7 +574,7 @@ export async function cleanupOldStickyMessages(
   try {
     // Get all pinned posts in the channel
     const pinnedPostIds = await platform.getPinnedPosts();
-    if (DEBUG) console.log(`[sticky] Found ${pinnedPostIds.length} pinned posts, current sticky: ${currentStickyId?.substring(0, 8) || '(none)'}`);
+    log.debug(`Found ${pinnedPostIds.length} pinned posts, current sticky: ${currentStickyId?.substring(0, 8) || '(none)'}`);
 
     for (const postId of pinnedPostIds) {
       // Skip the current sticky
@@ -591,21 +588,21 @@ export async function cleanupOldStickyMessages(
         // Check if this post is from our bot (match user ID)
         // The post's userId should match botUserId if it's ours
         if (post.userId === botUserId) {
-          if (DEBUG) console.log(`[sticky] Cleaning up old sticky: ${postId.substring(0, 8)}...`);
+          log.debug(`Cleaning up old sticky: ${postId.substring(0, 8)}...`);
           try {
             await platform.unpinPost(postId);
             await platform.deletePost(postId);
-            console.log(`  🧹 Cleaned up old sticky message: ${postId.substring(0, 8)}...`);
+            log.info(`🧹 Cleaned up old sticky message: ${postId.substring(0, 8)}...`);
           } catch (err) {
-            if (DEBUG) console.log(`[sticky] Failed to cleanup ${postId}:`, err);
+            log.debug(`Failed to cleanup ${postId}: ${err}`);
           }
         }
       } catch (err) {
         // Post might be deleted or inaccessible, skip it
-        if (DEBUG) console.log(`[sticky] Could not check post ${postId}:`, err);
+        log.debug(`Could not check post ${postId}: ${err}`);
       }
     }
   } catch (err) {
-    console.error(`  ⚠️ Failed to cleanup old sticky messages:`, err);
+    log.error(`⚠️ Failed to cleanup old sticky messages`, err instanceof Error ? err : undefined);
   }
 }
