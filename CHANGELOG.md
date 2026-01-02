@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-01-02
+
 ### Added
 - **Enhanced session status bar with model and context info** - The session header now displays real-time usage information similar to Claude Code's status line:
   - Model name (`🤖 Opus 4.5`, `🤖 Sonnet 4`, etc.)
@@ -20,11 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Periodic status bar updates** - Status bar now refreshes every 30 seconds automatically to keep uptime and usage stats current
 - **Usage stats tracking** - Session now tracks token usage, cost, and model information extracted from Claude CLI result events
 
+### Improved
+- **Existing worktree handling** - When a worktree already exists for a branch, the bot now offers to join it with a reaction prompt (👍 to join, ❌ to skip) instead of just showing a warning message that required manually typing `!worktree switch`
+
 ### Fixed
 - **Task list 🔽 emoji not preserved when bumped** - Fixed issues where the collapse/expand toggle emoji would disappear or get stuck on the wrong post:
   - When a task list is bumped to the bottom, the new post now gets the 🔽 emoji via `createInteractivePost`
   - When a task post is repurposed for other content, the emoji is removed from the old post before reuse
   - Added `removeReaction` method to platform client interface for proper emoji cleanup
+- **WorktreeMode type inconsistency** - Aligned the WorktreeMode type definition across the codebase to include 'off' mode
 
 ## [0.23.0] - 2026-01-02
 
@@ -40,9 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bot uptime (`⏱️ 2h15m`) - how long the bot has been running
   - Working directory (`📂 ~/projects`)
   - Hostname (`💻 hostname`) - machine name for identification
-
-### Improved
-- **Existing worktree handling** - When a worktree already exists for a branch, the bot now offers to join it with a reaction prompt (👍 to join, ❌ to skip) instead of just showing a warning message that required manually typing `!worktree switch`
 
 ## [0.22.1] - 2026-01-01
 
