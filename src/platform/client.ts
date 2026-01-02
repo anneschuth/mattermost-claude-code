@@ -186,6 +186,13 @@ export interface PlatformClient extends EventEmitter {
    */
   addReaction(postId: string, emojiName: string): Promise<void>;
 
+  /**
+   * Remove a reaction from a post
+   * @param postId - Post ID
+   * @param emojiName - Emoji name (e.g., '+1', 'white_check_mark')
+   */
+  removeReaction(postId: string, emojiName: string): Promise<void>;
+
   // ============================================================================
   // Bot Mentions
   // ============================================================================

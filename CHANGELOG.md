@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Task list 🔽 emoji not preserved when bumped** - Fixed issues where the collapse/expand toggle emoji would disappear or get stuck on the wrong post:
+  - When a task list is bumped to the bottom, the new post now gets the 🔽 emoji via `createInteractivePost`
+  - When a task post is repurposed for other content, the emoji is removed from the old post before reuse
+  - Added `removeReaction` method to platform client interface for proper emoji cleanup
+
 ## [0.23.0] - 2026-01-02
 
 ### Added

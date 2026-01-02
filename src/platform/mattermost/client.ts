@@ -203,6 +203,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     });
   }
 
+  // Remove a reaction from a post
+  async removeReaction(postId: string, emojiName: string): Promise<void> {
+    await this.api('DELETE', `/users/${this.botUserId}/posts/${postId}/reactions/${emojiName}`);
+  }
+
   /**
    * Create a post with reaction options for user interaction
    *

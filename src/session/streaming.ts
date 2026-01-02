@@ -8,6 +8,7 @@
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
+import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
 
 // ---------------------------------------------------------------------------
 // Message breaking thresholds
@@ -372,13 +373,24 @@ async function bumpTasksToBottomWithContent(
   const oldTasksPostId = session.tasksPostId!;
   const oldTasksContent = session.lastTasksContent;
 
+  // Remove the toggle emoji from the old task post before repurposing it
+  try {
+    await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
+  } catch {
+    // Ignore errors - emoji may not exist
+  }
+
   // Repurpose the task list post for the new content
   await session.platform.updatePost(oldTasksPostId, newContent);
   registerPost(oldTasksPostId, session.threadId);
 
   // Create a new task list post at the bottom (if we have content to show)
   if (oldTasksContent) {
-    const newTasksPost = await session.platform.createPost(oldTasksContent, session.threadId);
+    const newTasksPost = await session.platform.createInteractivePost(
+      oldTasksContent,
+      [TASK_TOGGLE_EMOJIS[0]], // Add toggle emoji
+      session.threadId
+    );
     session.tasksPostId = newTasksPost.id;
     // Register the new task post so reaction clicks are routed to this session
     registerPost(newTasksPost.id, session.threadId);
@@ -416,8 +428,12 @@ export async function bumpTasksToBottom(
     // Delete the old task post
     await session.platform.deletePost(session.tasksPostId);
 
-    // Create a new task post at the bottom
-    const newPost = await session.platform.createPost(session.lastTasksContent, session.threadId);
+    // Create a new task post at the bottom with the toggle emoji
+    const newPost = await session.platform.createInteractivePost(
+      session.lastTasksContent,
+      [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+      session.threadId
+    );
     session.tasksPostId = newPost.id;
     // Register the task post so reaction clicks are routed to this session
     if (registerPost) {

@@ -64,6 +64,9 @@ function createMockPlatform() {
         createAt: Date.now(),
       };
     }),
+    removeReaction: mock(async (_postId: string, _emojiName: string): Promise<void> => {
+      // Mock - do nothing
+    }),
     sendTyping: mock(() => {}),
     posts,
   };
@@ -161,8 +164,12 @@ describe('flush', () => {
 
     // Should have updated the old tasks post with new content
     expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', 'New Claude response');
-    // Should have created a new tasks post
-    expect(platform.createPost).toHaveBeenCalledWith('📋 **Tasks** (0/1)\n○ Do something', 'thread1');
+    // Should have created a new tasks post with toggle emoji
+    expect(platform.createInteractivePost).toHaveBeenCalledWith(
+      '📋 **Tasks** (0/1)\n○ Do something',
+      ['arrow_down_small'],
+      'thread1'
+    );
     // currentPostId should be the old tasks post (repurposed)
     expect(session.currentPostId).toBe('tasks_post');
     // tasksPostId should be the new post
@@ -235,9 +242,10 @@ describe('bumpTasksToBottom', () => {
 
     // Should delete the old post
     expect(platform.deletePost).toHaveBeenCalledWith('old_tasks_post');
-    // Should create new post with same content
-    expect(platform.createPost).toHaveBeenCalledWith(
+    // Should create new post with same content and toggle emoji
+    expect(platform.createInteractivePost).toHaveBeenCalledWith(
       '📋 **Tasks** (1/2)\n✅ Done\n○ Pending',
+      ['arrow_down_small'],
       'thread1'
     );
     // tasksPostId should be updated to new post
@@ -318,8 +326,8 @@ describe('flush with continuation (message splitting)', () => {
     // Should repurpose tasks post for continuation
     expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('*(continued)*'));
 
-    // Should create new tasks post
-    expect(platform.createPost).toHaveBeenCalledWith('📋 Tasks', 'thread1');
+    // Should create new tasks post with toggle emoji
+    expect(platform.createInteractivePost).toHaveBeenCalledWith('📋 Tasks', ['arrow_down_small'], 'thread1');
   });
 
   test('does not bump completed task list when creating continuation post', async () => {
@@ -391,8 +399,12 @@ describe('flush with completed tasks', () => {
     // Should repurpose tasks post for new content
     expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', 'New response content');
 
-    // Should create new tasks post at bottom
-    expect(platform.createPost).toHaveBeenCalledWith('📋 **Tasks** (0/1)\n○ Pending task', 'thread1');
+    // Should create new tasks post at bottom with toggle emoji
+    expect(platform.createInteractivePost).toHaveBeenCalledWith(
+      '📋 **Tasks** (0/1)\n○ Pending task',
+      ['arrow_down_small'],
+      'thread1'
+    );
   });
 });
 
