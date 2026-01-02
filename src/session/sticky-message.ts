@@ -6,7 +6,6 @@
  * The message is updated whenever sessions start or end.
  */
 
-import { hostname } from 'os';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { SessionStore } from '../persistence/session-store.js';
@@ -175,10 +174,6 @@ async function buildStatusBar(
   const shortDir = config.workingDir.replace(process.env.HOME || '', '~');
   items.push(`\`📂 ${shortDir}\``);
 
-  // Hostname
-  const host = hostname();
-  items.push(`\`💻 ${host}\``);
-
   return items.join(' · ');
 }
 
@@ -227,9 +222,9 @@ export async function buildStickyMessage(
   if (platformSessions.length === 0) {
     return [
       '---',
-      '**Active Claude Threads**',
-      '',
       statusBar,
+      '',
+      '**Active Claude Threads**',
       '',
       '_No active sessions_',
       '',
@@ -243,9 +238,9 @@ export async function buildStickyMessage(
   const count = platformSessions.length;
   const lines: string[] = [
     '---',
-    `**Active Claude Threads** (${count})`,
-    '',
     statusBar,
+    '',
+    `**Active Claude Threads** (${count})`,
     '',
   ];
 
