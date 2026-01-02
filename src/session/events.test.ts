@@ -114,6 +114,7 @@ function createTestSession(platform: PlatformClient): Session {
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     messageCount: 0,
+    statusBarTimer: null,
   };
 }
 
@@ -278,5 +279,192 @@ describe('handleEvent with TodoWrite', () => {
     // The task list content should show all completed
     expect(session.lastTasksContent).toContain('3/3');
     expect(session.lastTasksContent).toContain('100%');
+  });
+});
+
+describe('handleEvent with result event (usage stats)', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let ctx: EventContext;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createEventContext();
+  });
+
+  test('extracts usage stats from result event with modelUsage', () => {
+    const event = {
+      type: 'result' as const,
+      subtype: 'success',
+      total_cost_usd: 0.072784,
+      modelUsage: {
+        'claude-opus-4-5-20251101': {
+          inputTokens: 2471,
+          outputTokens: 193,
+          cacheReadInputTokens: 12671,
+          cacheCreationInputTokens: 7378,
+          contextWindow: 200000,
+          costUSD: 0.069628,
+        },
+        'claude-haiku-4-5-20251001': {
+          inputTokens: 2341,
+          outputTokens: 163,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          contextWindow: 200000,
+          costUSD: 0.003156,
+        },
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Check usage stats were extracted
+    expect(session.usageStats).toBeDefined();
+    expect(session.usageStats?.primaryModel).toBe('claude-opus-4-5-20251101');
+    expect(session.usageStats?.modelDisplayName).toBe('Opus 4.5');
+    expect(session.usageStats?.contextWindowSize).toBe(200000);
+    expect(session.usageStats?.totalCostUSD).toBe(0.072784);
+    // Total tokens: 2471+193+12671+7378 + 2341+163+0+0 = 25217
+    expect(session.usageStats?.totalTokensUsed).toBe(25217);
+  });
+
+  test('identifies primary model by highest cost', () => {
+    const event = {
+      type: 'result' as const,
+      total_cost_usd: 0.10,
+      modelUsage: {
+        'claude-haiku-4-5-20251001': {
+          inputTokens: 1000,
+          outputTokens: 100,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          contextWindow: 200000,
+          costUSD: 0.01,
+        },
+        'claude-sonnet-4-20251101': {
+          inputTokens: 500,
+          outputTokens: 50,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          contextWindow: 200000,
+          costUSD: 0.09, // Higher cost = primary model
+        },
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(session.usageStats?.primaryModel).toBe('claude-sonnet-4-20251101');
+    expect(session.usageStats?.modelDisplayName).toBe('Sonnet 4');
+  });
+
+  test('does not set usage stats when modelUsage is missing', () => {
+    const event = {
+      type: 'result' as const,
+      subtype: 'success',
+      total_cost_usd: 0.05,
+      // No modelUsage field
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(session.usageStats).toBeUndefined();
+  });
+
+  test('starts status bar timer on first result event', () => {
+    expect(session.statusBarTimer).toBeNull();
+
+    const event = {
+      type: 'result' as const,
+      total_cost_usd: 0.01,
+      modelUsage: {
+        'claude-opus-4-5-20251101': {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          contextWindow: 200000,
+          costUSD: 0.01,
+        },
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(session.statusBarTimer).not.toBeNull();
+
+    // Clean up the timer
+    if (session.statusBarTimer) {
+      clearInterval(session.statusBarTimer);
+      session.statusBarTimer = null;
+    }
+  });
+
+  test('calls updateSessionHeader after extracting usage stats', () => {
+    const event = {
+      type: 'result' as const,
+      total_cost_usd: 0.01,
+      modelUsage: {
+        'claude-opus-4-5-20251101': {
+          inputTokens: 100,
+          outputTokens: 10,
+          cacheReadInputTokens: 0,
+          cacheCreationInputTokens: 0,
+          contextWindow: 200000,
+          costUSD: 0.01,
+        },
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(ctx.updateSessionHeader).toHaveBeenCalled();
+
+    // Clean up
+    if (session.statusBarTimer) {
+      clearInterval(session.statusBarTimer);
+      session.statusBarTimer = null;
+    }
+  });
+
+  test('handles various model name formats correctly', () => {
+    const testCases = [
+      { modelId: 'claude-opus-4-5-20251101', expected: 'Opus 4.5' },
+      { modelId: 'claude-opus-4-20251101', expected: 'Opus 4' },
+      { modelId: 'claude-sonnet-3-5-20240620', expected: 'Sonnet 3.5' },
+      { modelId: 'claude-sonnet-4-20251101', expected: 'Sonnet 4' },
+      { modelId: 'claude-haiku-4-5-20251001', expected: 'Haiku 4.5' },
+      { modelId: 'claude-haiku-3-20240307', expected: 'Haiku' },
+    ];
+
+    for (const { modelId, expected } of testCases) {
+      session = createTestSession(platform); // Fresh session
+      const event = {
+        type: 'result' as const,
+        total_cost_usd: 0.01,
+        modelUsage: {
+          [modelId]: {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            contextWindow: 200000,
+            costUSD: 0.01,
+          },
+        },
+      };
+
+      handleEvent(session, event, ctx);
+
+      expect(session.usageStats?.modelDisplayName).toBe(expected);
+
+      // Clean up timer
+      if (session.statusBarTimer) {
+        clearInterval(session.statusBarTimer);
+        session.statusBarTimer = null;
+      }
+    }
   });
 });

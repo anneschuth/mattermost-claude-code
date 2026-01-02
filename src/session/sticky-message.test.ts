@@ -78,6 +78,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: 'Help me with this task',
+    statusBarTimer: null,
     ...overrides,
   } as Session;
 }

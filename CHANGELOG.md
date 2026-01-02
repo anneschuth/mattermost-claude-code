@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Enhanced session status bar with model and context info** - The session header now displays real-time usage information similar to Claude Code's status line:
+  - Model name (`🤖 Opus 4.5`, `🤖 Sonnet 4`, etc.)
+  - Context usage with visual progress bar (`🟢▓▓░░░░░░░░ 23%`)
+  - Session cost (`💰 $0.07`)
+  - Color-coded context indicator:
+    - 🟢 Green: < 50% (plenty of context)
+    - 🟡 Yellow: 50-75% (moderate usage)
+    - 🟠 Orange: 75-90% (getting full)
+    - 🔴 Red: 90%+ (almost full)
+- **Periodic status bar updates** - Status bar now refreshes every 30 seconds automatically to keep uptime and usage stats current
+- **Usage stats tracking** - Session now tracks token usage, cost, and model information extracted from Claude CLI result events
+
 ### Fixed
 - **Task list 🔽 emoji not preserved when bumped** - Fixed issues where the collapse/expand toggle emoji would disappear or get stuck on the wrong post:
   - When a task list is bumped to the bottom, the new post now gets the 🔽 emoji via `createInteractivePost`

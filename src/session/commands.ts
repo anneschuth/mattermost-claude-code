@@ -24,6 +24,38 @@ import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
 
 // ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+/**
+ * Format a visual progress bar for context usage
+ * @param percent - Percentage of context used (0-100)
+ * @returns A visual bar like "▓▓▓▓░░░░░░" with color indication
+ */
+function formatContextBar(percent: number): string {
+  const totalBlocks = 10;
+  const filledBlocks = Math.round((percent / 100) * totalBlocks);
+  const emptyBlocks = totalBlocks - filledBlocks;
+
+  // Use different indicators based on usage level
+  let indicator: string;
+  if (percent < 50) {
+    indicator = '🟢';  // Green - plenty of context
+  } else if (percent < 75) {
+    indicator = '🟡';  // Yellow - moderate usage
+  } else if (percent < 90) {
+    indicator = '🟠';  // Orange - getting full
+  } else {
+    indicator = '🔴';  // Red - almost full
+  }
+
+  const filled = '▓'.repeat(filledBlocks);
+  const empty = '░'.repeat(emptyBlocks);
+
+  return `${indicator}${filled}${empty}`;
+}
+
+// ---------------------------------------------------------------------------
 // Context types for dependency injection
 // ---------------------------------------------------------------------------
 
@@ -462,6 +494,19 @@ export async function updateSessionHeader(
 
   // Build status bar items
   const statusItems: string[] = [];
+
+  // Model and context usage (if available)
+  if (session.usageStats) {
+    const stats = session.usageStats;
+    statusItems.push(`\`🤖 ${stats.modelDisplayName}\``);
+    // Calculate context usage percentage
+    const contextPercent = Math.round((stats.totalTokensUsed / stats.contextWindowSize) * 100);
+    const contextBar = formatContextBar(contextPercent);
+    statusItems.push(`\`${contextBar} ${contextPercent}%\``);
+    // Show cost
+    statusItems.push(`\`💰 $${stats.totalCostUSD.toFixed(2)}\``);
+  }
+
   statusItems.push(`\`${session.sessionNumber}/${ctx.maxSessions}\``);
   statusItems.push(`\`${permMode}\``);
   if (ctx.chromeEnabled) {

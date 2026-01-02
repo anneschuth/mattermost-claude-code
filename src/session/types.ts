@@ -8,6 +8,42 @@ import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { PendingContextPrompt } from './context-prompt.js';
 
 // =============================================================================
+// Model and Usage Types
+// =============================================================================
+
+/**
+ * Token usage for a single model
+ */
+export interface ModelTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  contextWindow: number;  // Maximum context window size
+  costUSD: number;
+}
+
+/**
+ * Aggregated usage stats from Claude CLI result events
+ */
+export interface SessionUsageStats {
+  /** Primary model being used (e.g., "claude-opus-4-5-20251101") */
+  primaryModel: string;
+  /** Display name for the model (e.g., "Opus 4.5") */
+  modelDisplayName: string;
+  /** Maximum context window size */
+  contextWindowSize: number;
+  /** Total tokens used (input + output across all models) */
+  totalTokensUsed: number;
+  /** Total cost in USD */
+  totalCostUSD: number;
+  /** Per-model usage breakdown */
+  modelUsage: Record<string, ModelTokenUsage>;
+  /** Last update timestamp */
+  lastUpdated: Date;
+}
+
+// =============================================================================
 // Interactive State Types
 // =============================================================================
 
@@ -150,6 +186,12 @@ export interface Session {
 
   // Message counter for periodic reminders
   messageCount: number;  // Number of user messages sent to Claude in this session
+
+  // Usage stats from Claude CLI (updated on each result event)
+  usageStats?: SessionUsageStats;
+
+  // Status bar update timer (for periodic refreshes)
+  statusBarTimer: ReturnType<typeof setInterval> | null;
 }
 
 // =============================================================================

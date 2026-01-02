@@ -5,7 +5,7 @@
  * tool results, tasks, questions, and plan approvals.
  */
 
-import type { Session } from './types.js';
+import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
 import {
@@ -251,6 +251,10 @@ function formatEvent(
       ctx.flush(session);
       session.currentPostId = null;
       session.pendingContent = '';
+
+      // Extract usage stats from result event
+      updateUsageStats(session, e, ctx);
+
       return null;
     }
     case 'system':
@@ -599,4 +603,122 @@ export async function postCurrentQuestion(
 
   // Register post for reaction routing
   ctx.registerPost(post.id, session.threadId);
+}
+
+// ---------------------------------------------------------------------------
+// Usage stats extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Result event structure from Claude CLI
+ */
+interface ResultEvent {
+  type: 'result';
+  subtype?: string;
+  total_cost_usd?: number;
+  modelUsage?: Record<string, {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+    contextWindow: number;
+    costUSD: number;
+  }>;
+}
+
+/**
+ * Convert model ID to display name
+ * e.g., "claude-opus-4-5-20251101" -> "Opus 4.5"
+ */
+function getModelDisplayName(modelId: string): string {
+  // Common model name patterns
+  if (modelId.includes('opus-4-5') || modelId.includes('opus-4.5')) return 'Opus 4.5';
+  if (modelId.includes('opus-4')) return 'Opus 4';
+  if (modelId.includes('opus')) return 'Opus';
+  if (modelId.includes('sonnet-4')) return 'Sonnet 4';
+  if (modelId.includes('sonnet-3-5') || modelId.includes('sonnet-3.5')) return 'Sonnet 3.5';
+  if (modelId.includes('sonnet')) return 'Sonnet';
+  if (modelId.includes('haiku-4-5') || modelId.includes('haiku-4.5')) return 'Haiku 4.5';
+  if (modelId.includes('haiku')) return 'Haiku';
+  // Fallback: extract the model family name
+  const match = modelId.match(/claude-(\w+)/);
+  return match ? match[1].charAt(0).toUpperCase() + match[1].slice(1) : modelId;
+}
+
+/**
+ * Extract usage stats from a result event and update session
+ */
+function updateUsageStats(
+  session: Session,
+  event: ClaudeEvent,
+  ctx: EventContext
+): void {
+  const result = event as ResultEvent;
+
+  if (!result.modelUsage) return;
+
+  // Find the primary model (highest cost, usually the main model)
+  let primaryModel = '';
+  let highestCost = 0;
+  let contextWindowSize = 200000; // Default
+
+  const modelUsage: Record<string, ModelTokenUsage> = {};
+  let totalTokensUsed = 0;
+
+  for (const [modelId, usage] of Object.entries(result.modelUsage)) {
+    modelUsage[modelId] = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadInputTokens: usage.cacheReadInputTokens,
+      cacheCreationInputTokens: usage.cacheCreationInputTokens,
+      contextWindow: usage.contextWindow,
+      costUSD: usage.costUSD,
+    };
+
+    // Sum all tokens
+    totalTokensUsed += usage.inputTokens + usage.outputTokens +
+      usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
+
+    // Track primary model by highest cost
+    if (usage.costUSD > highestCost) {
+      highestCost = usage.costUSD;
+      primaryModel = modelId;
+      contextWindowSize = usage.contextWindow;
+    }
+  }
+
+  // Create or update usage stats
+  const usageStats: SessionUsageStats = {
+    primaryModel,
+    modelDisplayName: getModelDisplayName(primaryModel),
+    contextWindowSize,
+    totalTokensUsed,
+    totalCostUSD: result.total_cost_usd || 0,
+    modelUsage,
+    lastUpdated: new Date(),
+  };
+
+  session.usageStats = usageStats;
+
+  if (ctx.debug) {
+    console.log(
+      `[DEBUG] Updated usage stats: ${usageStats.modelDisplayName}, ` +
+      `${usageStats.totalTokensUsed}/${usageStats.contextWindowSize} tokens, ` +
+      `$${usageStats.totalCostUSD.toFixed(4)}`
+    );
+  }
+
+  // Start periodic status bar timer if not already running
+  if (!session.statusBarTimer) {
+    const STATUS_BAR_UPDATE_INTERVAL = 30000; // 30 seconds
+    session.statusBarTimer = setInterval(() => {
+      // Only update if session is still active
+      if (session.claude.isRunning()) {
+        ctx.updateSessionHeader(session).catch(() => {});
+      }
+    }, STATUS_BAR_UPDATE_INTERVAL);
+  }
+
+  // Update status bar with new usage info
+  ctx.updateSessionHeader(session).catch(() => {});
 }

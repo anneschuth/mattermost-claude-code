@@ -242,6 +242,7 @@ export async function startSession(
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
+    statusBarTimer: null,  // Will be started after first result event
   };
 
   // Register session
@@ -427,6 +428,7 @@ export async function resumeSession(
     sessionTitle: state.sessionTitle,
     sessionDescription: state.sessionDescription,
     messageCount: state.messageCount ?? 0,
+    statusBarTimer: null,  // Will be started after first result event
   };
 
   // Register session
@@ -611,6 +613,10 @@ export async function handleExit(
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
     }
+    if (session.statusBarTimer) {
+      clearInterval(session.statusBarTimer);
+      session.statusBarTimer = null;
+    }
     ctx.sessions.delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
@@ -624,6 +630,10 @@ export async function handleExit(
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
+    }
+    if (session.statusBarTimer) {
+      clearInterval(session.statusBarTimer);
+      session.statusBarTimer = null;
     }
     ctx.persistSession(session);
     ctx.sessions.delete(session.sessionId);
@@ -658,6 +668,10 @@ export async function handleExit(
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
     }
+    if (session.statusBarTimer) {
+      clearInterval(session.statusBarTimer);
+      session.statusBarTimer = null;
+    }
     ctx.sessions.delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
@@ -681,6 +695,10 @@ export async function handleExit(
   if (session.updateTimer) {
     clearTimeout(session.updateTimer);
     session.updateTimer = null;
+  }
+  if (session.statusBarTimer) {
+    clearInterval(session.statusBarTimer);
+    session.statusBarTimer = null;
   }
   await ctx.flush(session);
 

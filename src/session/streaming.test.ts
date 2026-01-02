@@ -111,6 +111,7 @@ function createTestSession(platform: PlatformClient): Session {
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     messageCount: 0,
+    statusBarTimer: null,
   };
 }
 
