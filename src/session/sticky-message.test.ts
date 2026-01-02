@@ -290,6 +290,58 @@ describe('buildStickyMessage', () => {
     expect(result).not.toMatch(/· ·/);
   });
 
+  it('shows active task when in progress', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n✅ ~~First task~~\n✅ ~~Second task~~\n🔄 **Building the API** (15s)\n○ Fourth task\n○ Fifth task',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('2/5');
+    expect(result).toContain('🔄 _Building the API_');
+  });
+
+  it('shows active task without elapsed time', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: '📋 **Tasks** (1/3 · 33%)\n\n✅ ~~Done~~\n🔄 **Running tests**\n○ Deploy',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('1/3');
+    expect(result).toContain('🔄 _Running tests_');
+  });
+
+  it('does not show active task when all completed', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: '📋 **Tasks** (3/3 · 100%)\n\n✅ ~~First~~\n✅ ~~Second~~\n✅ ~~Third~~',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('3/3');
+    expect(result).not.toContain('🔄');
+  });
+
+  it('does not show active task when only pending tasks', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: '📋 **Tasks** (0/2 · 0%)\n\n○ First task\n○ Second task',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('0/2');
+    expect(result).not.toContain('🔄');
+  });
+
   it('handles session without firstPrompt', async () => {
     const sessions = new Map<string, Session>();
     const session = createMockSession({
