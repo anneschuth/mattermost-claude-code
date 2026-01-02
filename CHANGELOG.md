@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-01-02
+
+### Added
+- **Pending prompts in thread list** - The sticky channel message now shows when sessions are waiting for user input. Pending prompts are displayed with visual indicators:
+  - 📋 Plan approval - waiting for plan approval reaction
+  - ❓ Question X/Y - multi-step questions with progress
+  - 💬 Message approval - unauthorized user message pending
+  - 🌿 Branch name - waiting for worktree branch input
+  - 🌿 Join worktree - asking to join existing worktree
+  - 📝 Context selection - choosing thread context to include
+- **Reusable pending prompts API** - New `getPendingPrompts()` and `formatPendingPrompts()` functions exported from session module for displaying pending states anywhere
+
 ## [0.27.1] - 2026-01-02
 
 ### Fixed
