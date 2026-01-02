@@ -1,6 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('persist');
 
 /**
  * Worktree information for a session
@@ -83,7 +86,6 @@ const SESSIONS_FILE = join(CONFIG_DIR, 'sessions.json');
  * Stores session data as JSON file for resume after restart
  */
 export class SessionStore {
-  private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   constructor() {
     // Ensure config directory exists
@@ -100,7 +102,7 @@ export class SessionStore {
     const sessions = new Map<string, PersistedSession>();
 
     if (!existsSync(SESSIONS_FILE)) {
-      if (this.debug) console.log('  [persist] No sessions file found');
+      log.debug('No sessions file found');
       return sessions;
     }
 
@@ -109,7 +111,7 @@ export class SessionStore {
 
       // Migration: v1 → v2 (add platformId and convert keys to composite format)
       if (data.version === 1) {
-        console.log('  [persist] Migrating sessions from v1 to v2 (adding platformId)');
+        log.info('Migrating sessions from v1 to v2 (adding platformId)');
         const newSessions: Record<string, PersistedSession> = {};
         for (const [_oldKey, session] of Object.entries(data.sessions)) {
           const v1Session = session as PersistedSessionV1;
@@ -125,7 +127,7 @@ export class SessionStore {
         // Save migrated data
         this.writeAtomic(data);
       } else if (data.version !== STORE_VERSION) {
-        console.warn(`  [persist] Sessions file version ${data.version} not supported, starting fresh`);
+        log.warn(`Sessions file version ${data.version} not supported, starting fresh`);
         return sessions;
       }
 
@@ -135,11 +137,9 @@ export class SessionStore {
         sessions.set(sessionId, session);
       }
 
-      if (this.debug) {
-        console.log(`  [persist] Loaded ${sessions.size} session(s)`);
-      }
+      log.debug(`Loaded ${sessions.size} session(s)`);
     } catch (err) {
-      console.error('  [persist] Failed to load sessions:', err);
+      log.error(`Failed to load sessions: ${err}`);
     }
 
     return sessions;
@@ -156,10 +156,8 @@ export class SessionStore {
     data.sessions[sessionId] = session;
     this.writeAtomic(data);
 
-    if (this.debug) {
-      const shortId = sessionId.substring(0, 20);
-      console.log(`  [persist] Saved session ${shortId}...`);
-    }
+    const shortId = sessionId.substring(0, 20);
+    log.debug(`Saved session ${shortId}...`);
   }
 
   /**
@@ -172,10 +170,8 @@ export class SessionStore {
       delete data.sessions[sessionId];
       this.writeAtomic(data);
 
-      if (this.debug) {
-        const shortId = sessionId.substring(0, 20);
-        console.log(`  [persist] Removed session ${shortId}...`);
-      }
+      const shortId = sessionId.substring(0, 20);
+      log.debug(`Removed session ${shortId}...`);
     }
   }
 
@@ -198,9 +194,7 @@ export class SessionStore {
 
     if (staleIds.length > 0) {
       this.writeAtomic(data);
-      if (this.debug) {
-        console.log(`  [persist] Cleaned ${staleIds.length} stale session(s)`);
-      }
+      log.debug(`Cleaned ${staleIds.length} stale session(s)`);
     }
 
     return staleIds;
@@ -213,9 +207,7 @@ export class SessionStore {
     const data = this.loadRaw();
     // Preserve sticky post IDs when clearing sessions
     this.writeAtomic({ version: STORE_VERSION, sessions: {}, stickyPostIds: data.stickyPostIds });
-    if (this.debug) {
-      console.log('  [persist] Cleared all sessions');
-    }
+    log.debug('Cleared all sessions');
   }
 
   // ---------------------------------------------------------------------------
@@ -233,9 +225,7 @@ export class SessionStore {
     data.stickyPostIds[platformId] = postId;
     this.writeAtomic(data);
 
-    if (this.debug) {
-      console.log(`  [persist] Saved sticky post ID for ${platformId}: ${postId.substring(0, 8)}...`);
-    }
+    log.debug(`Saved sticky post ID for ${platformId}: ${postId.substring(0, 8)}...`);
   }
 
   /**
@@ -255,9 +245,7 @@ export class SessionStore {
       delete data.stickyPostIds[platformId];
       this.writeAtomic(data);
 
-      if (this.debug) {
-        console.log(`  [persist] Removed sticky post ID for ${platformId}`);
-      }
+      log.debug(`Removed sticky post ID for ${platformId}`);
     }
   }
 

@@ -1,7 +1,9 @@
 // Native WebSocket - no import needed in Bun
 import { EventEmitter } from 'events';
 import type { MattermostPlatformConfig } from '../../config/migration.js';
-import { wsLogger } from '../../utils/logger.js';
+import { wsLogger, createLogger } from '../../utils/logger.js';
+
+const log = createLogger('mattermost');
 import type {
   MattermostWebSocketEvent,
   MattermostPost,
@@ -231,7 +233,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       try {
         await this.addReaction(post.id, emoji);
       } catch (err) {
-        console.error(`  ⚠️ Failed to add reaction ${emoji}:`, err);
+        log.warn(`Failed to add reaction ${emoji}: ${err}`);
       }
     }
 
@@ -341,7 +343,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
       return messages;
     } catch (err) {
-      console.error(`  ⚠️ Failed to get thread history for ${threadId}:`, err);
+      log.warn(`Failed to get thread history for ${threadId}: ${err}`);
       return [];
     }
   }
@@ -461,17 +463,17 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('  ⚠️  Max reconnection attempts reached');
+      log.error('Max reconnection attempts reached');
       return;
     }
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    console.log(`  🔄 Reconnecting... (attempt ${this.reconnectAttempts})`);
+    log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
 
     setTimeout(() => {
       this.connect().catch((err) => {
-        console.error(`  ❌ Reconnection failed: ${err}`);
+        log.error(`Reconnection failed: ${err}`);
       });
     }, delay);
   }
@@ -485,7 +487,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
       // If no message received for too long, connection is dead
       if (silentFor > this.HEARTBEAT_TIMEOUT_MS) {
-        console.log(`  💔 Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
+        log.warn(`Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
         this.stopHeartbeat();
         if (this.ws) {
           this.ws.close(); // Force close (triggers reconnect via 'close' event)

@@ -88,11 +88,11 @@ export class SessionManager {
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
       lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getContext())
-        .catch(err => console.error('  [cleanup] Error during idle session cleanup:', err));
+        .catch(err => log.error(`Error during idle session cleanup: ${err}`));
       // Refresh sticky message to keep relative times current (only if there are active sessions)
       if (this.sessions.size > 0) {
         this.updateStickyMessage()
-          .catch(err => console.error('  [sticky] Error during periodic refresh:', err));
+          .catch(err => log.error(`Error during periodic refresh: ${err}`));
       }
     }, 60000);
   }
@@ -564,7 +564,7 @@ export class SessionManager {
         const botUser = await platform.getBotUser();
         await stickyMessage.cleanupOldStickyMessages(platform, botUser.id);
       } catch (err) {
-        console.error(`  ⚠️ Failed to cleanup old sticky messages for ${platform.platformId}:`, err);
+        log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
       }
     }
 

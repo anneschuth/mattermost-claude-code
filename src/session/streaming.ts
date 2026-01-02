@@ -9,6 +9,9 @@ import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('streaming');
 
 // ---------------------------------------------------------------------------
 // Message breaking thresholds
@@ -293,7 +296,7 @@ export async function buildMessageContent(
   for (const file of imageFiles) {
     try {
       if (!platform.downloadFile) {
-        console.warn(`  ⚠️ Platform does not support file downloads, skipping ${file.name}`);
+        log.warn(`Platform does not support file downloads, skipping ${file.name}`);
         continue;
       }
       const buffer = await platform.downloadFile(file.id);
@@ -309,10 +312,10 @@ export async function buildMessageContent(
       });
 
       if (debug) {
-        console.log(`  📷 Attached image: ${file.name} (${file.mimeType}, ${Math.round(buffer.length / 1024)}KB)`);
+        log.debug(`Attached image: ${file.name} (${file.mimeType}, ${Math.round(buffer.length / 1024)}KB)`);
       }
     } catch (err) {
-      console.error(`  ⚠️ Failed to download image ${file.name}:`, err);
+      log.error(`Failed to download image ${file.name}: ${err}`);
     }
   }
 
@@ -440,7 +443,7 @@ export async function bumpTasksToBottom(
       registerPost(newPost.id, session.threadId);
     }
   } catch (err) {
-    console.error('  ⚠️ Failed to bump tasks to bottom:', err);
+    log.error(`Failed to bump tasks to bottom: ${err}`);
   }
 }
 

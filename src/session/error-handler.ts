@@ -120,8 +120,8 @@ export async function handleError(
   }
 
   // Log additional details in debug mode
-  if (context.details && process.env.DEBUG === '1') {
-    console.log('  Error details:', context.details);
+  if (context.details) {
+    log.debug(`Error details: ${JSON.stringify(context.details)}`);
   }
 
   // Notify user if requested and session available

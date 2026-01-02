@@ -20,6 +20,9 @@ import {
 } from './streaming.js';
 import { withErrorHandling } from './error-handler.js';
 import type { SessionContext } from './context.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('events');
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -151,11 +154,9 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
-  if (ctx.config.debug) {
-    console.log(
-      `[DEBUG] handleEvent(${session.threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`
-    );
-  }
+  log.debug(
+    `handleEvent(${session.threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`
+  );
   if (formatted) ctx.ops.appendContent(session, formatted);
 
   // After tool_result events, check if we should flush and start a new post
@@ -308,13 +309,13 @@ async function handleExitPlanMode(
   // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
   // so we can't send another tool_result - just let the CLI handle it
   if (session.planApproved) {
-    if (ctx.config.debug) console.log('  ↪ Plan already approved, letting CLI handle it');
+    log.debug('Plan already approved, letting CLI handle it');
     return;
   }
 
   // If we already have a pending approval, don't post another one
   if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-    if (ctx.config.debug) console.log('  ↪ Plan approval already pending, waiting');
+    log.debug('Plan approval already pending, waiting');
     return;
   }
 
@@ -544,7 +545,7 @@ async function handleAskUserQuestion(
 ): Promise<void> {
   // If we already have pending questions, don't start another set
   if (session.pendingQuestionSet) {
-    if (ctx.config.debug) console.log('  ↪ Questions already pending, waiting');
+    log.debug('Questions already pending, waiting');
     return;
   }
 
@@ -721,13 +722,11 @@ function updateUsageStats(
 
   session.usageStats = usageStats;
 
-  if (ctx.config.debug) {
-    console.log(
-      `[DEBUG] Updated usage stats: ${usageStats.modelDisplayName}, ` +
-      `${usageStats.totalTokensUsed}/${usageStats.contextWindowSize} tokens, ` +
-      `$${usageStats.totalCostUSD.toFixed(4)}`
-    );
-  }
+  log.debug(
+    `Updated usage stats: ${usageStats.modelDisplayName}, ` +
+    `${usageStats.totalTokensUsed}/${usageStats.contextWindowSize} tokens, ` +
+    `$${usageStats.totalCostUSD.toFixed(4)}`
+  );
 
   // Start periodic status bar timer if not already running
   if (!session.statusBarTimer) {

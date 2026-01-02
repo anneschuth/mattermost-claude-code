@@ -2,6 +2,9 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('claude');
 
 export interface ClaudeEvent {
   type: string;
@@ -121,9 +124,7 @@ export class ClaudeCli extends EventEmitter {
       args.push('--append-system-prompt', this.options.appendSystemPrompt);
     }
 
-    if (this.debug) {
-      console.log(`  [claude] Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
-    }
+    log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
 
     this.process = spawn(claudePath, args, {
       cwd: this.options.workingDir,
@@ -136,20 +137,16 @@ export class ClaudeCli extends EventEmitter {
     });
 
     this.process.stderr?.on('data', (chunk: Buffer) => {
-      if (this.debug) {
-        console.error(`  [claude:err] ${chunk.toString().trim()}`);
-      }
+      log.debug(`stderr: ${chunk.toString().trim()}`);
     });
 
     this.process.on('error', (err) => {
-      console.error('  ❌ Claude error:', err);
+      log.error(`Claude error: ${err}`);
       this.emit('error', err);
     });
 
     this.process.on('exit', (code) => {
-      if (this.debug) {
-        console.log(`  [claude] Exited ${code}`);
-      }
+      log.debug(`Exited ${code}`);
       this.process = null;
       this.buffer = '';
       this.emit('exit', code);
@@ -165,12 +162,10 @@ export class ClaudeCli extends EventEmitter {
       type: 'user',
       message: { role: 'user', content }
     }) + '\n';
-    if (this.debug) {
-      const preview = typeof content === 'string'
-        ? content.substring(0, 50)
-        : `[${content.length} blocks]`;
-      console.log(`  [claude] Sending: ${preview}...`);
-    }
+    const preview = typeof content === 'string'
+      ? content.substring(0, 50)
+      : `[${content.length} blocks]`;
+    log.debug(`Sending: ${preview}...`);
     this.process.stdin.write(msg);
   }
 
@@ -189,9 +184,7 @@ export class ClaudeCli extends EventEmitter {
         }]
       }
     }) + '\n';
-    if (this.debug) {
-      console.log(`  [claude] Sending tool_result for ${toolUseId}`);
-    }
+    log.debug(`Sending tool_result for ${toolUseId}`);
     this.process.stdin.write(msg);
   }
 
@@ -206,14 +199,10 @@ export class ClaudeCli extends EventEmitter {
 
       try {
         const event = JSON.parse(trimmed) as ClaudeEvent;
-        if (this.debug) {
-          console.log(`[DEBUG] Event: ${event.type}`, JSON.stringify(event).substring(0, 200));
-        }
+        log.debug(`Event: ${event.type} ${JSON.stringify(event).substring(0, 200)}`);
         this.emit('event', event);
       } catch {
-        if (this.debug) {
-          console.log(`[DEBUG] Raw: ${trimmed.substring(0, 200)}`);
-        }
+        log.debug(`Raw: ${trimmed.substring(0, 200)}`);
       }
     }
   }
