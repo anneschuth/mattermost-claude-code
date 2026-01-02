@@ -104,7 +104,7 @@ function parseChangelog(content: string, targetVersion?: string): ReleaseNotes |
 }
 
 /**
- * Format release notes as a Mattermost message.
+ * Format release notes as a chat message with markdown.
  */
 export function formatReleaseNotes(notes: ReleaseNotes): string {
   let msg = `### 📋 Release Notes - v${notes.version}`;

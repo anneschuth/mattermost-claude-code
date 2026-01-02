@@ -13,7 +13,7 @@ export function checkForUpdates(): void {
       updateCheckInterval: 1000 * 60 * 30, // Check every 30 minutes
     });
 
-    // Cache for Mattermost notifications
+    // Cache for chat platform notifications
     cachedUpdateInfo = notifier.update;
 
     // Show CLI notification
@@ -26,7 +26,7 @@ Run: npm install -g claude-threads`,
   }
 }
 
-// Returns update info if available, for posting to Mattermost
+// Returns update info if available, for posting to chat platforms
 // Only returns if latest > current (handles stale cache edge case)
 export function getUpdateInfo(): UpdateInfo | undefined {
   if (!cachedUpdateInfo) return undefined;

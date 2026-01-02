@@ -2,7 +2,7 @@
  * Message streaming and flushing utilities
  *
  * Handles buffering, formatting, and posting Claude responses to the platform.
- * Implements logical message breaking to avoid "Show More" collapse in Mattermost.
+ * Implements logical message breaking to avoid content collapse on chat platforms.
  */
 
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
@@ -16,8 +16,8 @@ import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
 
 /**
  * Soft threshold: when content exceeds this, we look for logical breakpoints.
- * This is much lower than the hard limit to avoid "Show More" in Mattermost.
- * Mattermost collapses at ~300 chars or 5 line breaks.
+ * This is lower than the hard limit to avoid content collapse on chat platforms.
+ * Many platforms collapse long messages (e.g., at ~300 chars or 5 line breaks).
  */
 export const SOFT_BREAK_THRESHOLD = 2000;
 
@@ -29,7 +29,7 @@ export const MIN_BREAK_THRESHOLD = 500;
 
 /**
  * Maximum lines before we look for a break point.
- * Mattermost collapses at 5 lines, so we break before reaching that.
+ * Some platforms collapse at ~5 lines, so we break well before reaching that.
  */
 export const MAX_LINES_BEFORE_BREAK = 15;
 
@@ -466,12 +466,12 @@ export async function flush(
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
 
-  // Most chat platforms have post length limits (~16K for Mattermost/Slack)
+  // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
   const HARD_CONTINUATION_THRESHOLD = 14000;  // Absolute max before we force a break
 
   // Check if we should break early based on logical breakpoints
-  // This helps avoid "Show More" collapse in Mattermost (triggers at ~300 chars or 5 lines)
+  // This helps avoid "Show More" collapse on some platforms
   const shouldBreakEarly = session.currentPostId &&
     content.length > MIN_BREAK_THRESHOLD &&
     shouldFlushEarly(content);

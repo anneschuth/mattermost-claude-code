@@ -6,7 +6,7 @@
  * - src/mcp/permission-server.ts (MCP permission handler)
  *
  * Uses PlatformFormatter abstraction to support different markdown dialects
- * (e.g., Mattermost standard markdown vs Slack mrkdwn).
+ * (e.g., standard markdown vs Slack mrkdwn).
  */
 
 import * as Diff from 'diff';
