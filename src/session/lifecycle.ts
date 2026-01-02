@@ -16,6 +16,7 @@ import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
+import { postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
 
 const log = createLogger('lifecycle');
 
@@ -475,10 +476,7 @@ export async function resumeSession(
     log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
 
     // Post resume message
-    await session.platform.createPost(
-      `🔄 **Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`,
-      state.threadId
-    );
+    await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
 
     // Update session header
     await ctx.updateSessionHeader(session);
@@ -668,10 +666,7 @@ export async function handleExit(
     keepAlive.sessionEnded();
     // Notify user
     await withErrorHandling(
-      () => session.platform.createPost(
-        `ℹ️ Session paused. Send a new message to continue.`,
-        session.threadId
-      ),
+      () => postInfo(session, `ℹ️ Session paused. Send a new message to continue.`),
       { action: 'Post session pause notification', session }
     );
     log.info(`Session paused (${shortId}…) — ${ctx.sessions.size} active`);
@@ -696,10 +691,7 @@ export async function handleExit(
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     await withErrorHandling(
-      () => session.platform.createPost(
-        `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
-        session.threadId
-      ),
+      () => postWarning(session, `**Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`),
       { action: 'Post session resume failure', session }
     );
     // Update sticky channel message after session failure
@@ -722,7 +714,7 @@ export async function handleExit(
   await ctx.flush(session);
 
   if (code !== 0 && code !== null) {
-    await session.platform.createPost(`**[Exited: ${code}]**`, session.threadId);
+    await postInfo(session, `**[Exited: ${code}]**`);
   }
 
   // Clean up session from maps
@@ -833,11 +825,7 @@ export async function cleanupIdleSessions(
 
       // Post timeout message with resume hint and save the post ID
       const timeoutPost = await withErrorHandling(
-        () => session.platform.createPost(
-          `⏰ **Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n` +
-          `💡 React with 🔄 to resume, or send a new message to continue.`,
-          session.threadId
-        ),
+        () => postTimeout(session, `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`),
         { action: 'Post session timeout', session }
       );
       if (timeoutPost) {
@@ -858,10 +846,7 @@ export async function cleanupIdleSessions(
     const warningThresholdMs = timeoutMs - warningMs;
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
-      session.platform.createPost(
-        `⏰ **Session idle** - will timeout in ~${remainingMins} minutes without activity`,
-        session.threadId
-      ).catch(() => {});
+      postTimeout(session, `**Session idle** - will timeout in ~${remainingMins} minutes without activity`).catch(() => {});
       session.timeoutWarningPosted = true;
       console.log(`  ⏰ Session (${shortId}…) idle warning posted`);
     }

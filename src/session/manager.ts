@@ -383,93 +383,18 @@ export class SessionManager {
   // Context Prompt Handling
   // ---------------------------------------------------------------------------
 
-  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
-    if (!session.pendingContextPrompt) return;
-
-    const selection = contextPrompt.getContextSelectionFromReaction(
-      emojiName,
-      session.pendingContextPrompt.availableOptions
-    );
-    if (selection === null) return; // Not a valid context selection reaction
-
-    const pending = session.pendingContextPrompt;
-
-    // Clear the timeout
-    contextPrompt.clearContextPromptTimeout(pending);
-
-    // Update the post to show selection
-    await contextPrompt.updateContextPromptPost(session, pending.postId, selection, username);
-
-    // Get the queued prompt
-    const queuedPrompt = pending.queuedPrompt;
-
-    // Clear pending context prompt
-    session.pendingContextPrompt = undefined;
-
-    // Build message with or without context
-    let messageToSend = queuedPrompt;
-    if (selection > 0) {
-      const messages = await contextPrompt.getThreadMessagesForContext(session, selection, pending.postId);
-      if (messages.length > 0) {
-        const contextPrefix = contextPrompt.formatContextForClaude(messages);
-        messageToSend = contextPrefix + queuedPrompt;
-      }
-    }
-
-    // Increment message counter
-    session.messageCount++;
-
-    // Inject metadata reminder periodically
-    messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
-
-    // Send the message to Claude
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
-      this.startTyping(session);
-    }
-
-    // Persist updated state
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
-    }
+  private getContextPromptHandler(): contextPrompt.ContextPromptHandler {
+    return {
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
+      startTyping: (s) => this.startTyping(s),
+      persistSession: (s) => this.persistSession(s),
+      injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
+      debug: this.debug,
+    };
   }
 
-  private async handleContextPromptTimeout(session: Session): Promise<void> {
-    if (!session.pendingContextPrompt) return;
-
-    const pending = session.pendingContextPrompt;
-
-    // Update the post to show timeout
-    await contextPrompt.updateContextPromptPost(session, pending.postId, 'timeout');
-
-    // Get the queued prompt
-    const queuedPrompt = pending.queuedPrompt;
-
-    // Clear pending context prompt
-    session.pendingContextPrompt = undefined;
-
-    // Increment message counter
-    session.messageCount++;
-
-    // Inject metadata reminder periodically
-    const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
-
-    // Send the message without context
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
-      this.startTyping(session);
-    }
-
-    // Persist updated state
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
-    }
+  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
+    await contextPrompt.handleContextPromptReaction(session, emojiName, username, this.getContextPromptHandler());
   }
 
   /**
@@ -479,70 +404,7 @@ export class SessionManager {
    * Returns true if context prompt was posted, false if message was sent directly.
    */
   async offerContextPrompt(session: Session, queuedPrompt: string, excludePostId?: string): Promise<boolean> {
-    // Get thread history count (exclude bot messages and the triggering message)
-    const messageCount = await contextPrompt.getThreadContextCount(session, excludePostId);
-
-    if (messageCount === 0) {
-      // No previous messages, send directly
-      // Increment message counter
-      session.messageCount++;
-
-      // Inject metadata reminder periodically
-      const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
-
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage(messageToSend);
-        this.startTyping(session);
-      }
-      return false;
-    }
-
-    if (messageCount === 1) {
-      // Only one message (the thread starter) - auto-include without asking
-      const messages = await contextPrompt.getThreadMessagesForContext(session, 1, excludePostId);
-      let messageToSend = queuedPrompt;
-      if (messages.length > 0) {
-        const contextPrefix = contextPrompt.formatContextForClaude(messages);
-        messageToSend = contextPrefix + queuedPrompt;
-      }
-
-      // Increment message counter
-      session.messageCount++;
-
-      // Inject metadata reminder periodically
-      messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
-
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage(messageToSend);
-        this.startTyping(session);
-      }
-
-      if (this.debug) {
-        const shortId = session.threadId.substring(0, 8);
-        console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
-      }
-
-      return false;
-    }
-
-    // Post context prompt
-    const pending = await contextPrompt.postContextPrompt(
-      session,
-      queuedPrompt,
-      messageCount,
-      (pid, tid) => this.registerPost(pid, tid),
-      () => this.handleContextPromptTimeout(session)
-    );
-
-    session.pendingContextPrompt = pending;
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
-    }
-
-    return true;
+    return contextPrompt.offerContextPrompt(session, queuedPrompt, this.getContextPromptHandler(), excludePostId);
   }
 
   /**

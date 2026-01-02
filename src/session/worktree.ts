@@ -21,6 +21,7 @@ import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
+import { postWarning, postError, postSuccess, postInfo } from './post-helpers.js';
 
 /**
  * Check if we should prompt the user to create a worktree.
@@ -123,10 +124,7 @@ export async function handleWorktreeBranchResponse(
 
   // Validate branch name
   if (!isValidBranchName(branchName)) {
-    await session.platform.createPost(
-      `❌ Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`,
-      session.threadId
-    );
+    await postError(session, `Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`);
     return true; // We handled it, but need another response
   }
 
@@ -204,20 +202,14 @@ export async function createAndSwitchToWorktree(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
     return;
   }
 
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
-    await session.platform.createPost(
-      `❌ Current directory is not a git repository`,
-      session.threadId
-    );
+    await postError(session, `Current directory is not a git repository`);
     return;
   }
 
@@ -336,10 +328,7 @@ export async function createAndSwitchToWorktree(
 
     // Post confirmation
     const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
-    await session.platform.createPost(
-      `✅ **Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`,
-      session.threadId
-    );
+    await postSuccess(session, `**Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`);
 
     // Update activity and persist
     session.lastActivityAt = new Date();
@@ -364,11 +353,7 @@ export async function createAndSwitchToWorktree(
 
     console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
   } catch (err) {
-    console.error(`  ❌ Failed to create worktree:`, err);
-    await session.platform.createPost(
-      `❌ Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
-      session.threadId
-    );
+    await logAndNotify(err, { action: 'Create worktree', session });
   }
 }
 
@@ -383,10 +368,7 @@ export async function switchToWorktree(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
     return;
   }
 
@@ -402,10 +384,7 @@ export async function switchToWorktree(
   );
 
   if (!target) {
-    await session.platform.createPost(
-      `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
-      session.threadId
-    );
+    await postError(session, `Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`);
     return;
   }
 
@@ -427,10 +406,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
-    await session.platform.createPost(
-      `❌ Current directory is not a git repository`,
-      session.threadId
-    );
+    await postError(session, `Current directory is not a git repository`);
     return;
   }
 
@@ -439,10 +415,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   const worktrees = await listGitWorktrees(repoRoot);
 
   if (worktrees.length === 0) {
-    await session.platform.createPost(
-      `📋 No worktrees found for this repository`,
-      session.threadId
-    );
+    await postInfo(session, `No worktrees found for this repository`);
     return;
   }
 
@@ -457,7 +430,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
     message += `• \`${wt.branch}\` → \`${shortPath}\` ${label}${marker}\n`;
   }
 
-  await session.platform.createPost(message, session.threadId);
+  await postInfo(session, message);
 }
 
 /**
@@ -470,10 +443,7 @@ export async function removeWorktreeCommand(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
     return;
   }
 
@@ -489,28 +459,19 @@ export async function removeWorktreeCommand(
   );
 
   if (!target) {
-    await session.platform.createPost(
-      `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
-      session.threadId
-    );
+    await postError(session, `Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`);
     return;
   }
 
   // Can't remove the main repository
   if (target.isMain) {
-    await session.platform.createPost(
-      `❌ Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`,
-      session.threadId
-    );
+    await postError(session, `Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`);
     return;
   }
 
   // Can't remove the current working directory
   if (session.workingDir === target.path) {
-    await session.platform.createPost(
-      `❌ Cannot remove the current working directory. Switch to another worktree first.`,
-      session.threadId
-    );
+    await postError(session, `Cannot remove the current working directory. Switch to another worktree first.`);
     return;
   }
 
@@ -518,10 +479,7 @@ export async function removeWorktreeCommand(
     await removeGitWorktree(repoRoot, target.path);
 
     const shortPath = target.path.replace(process.env.HOME || '', '~');
-    await session.platform.createPost(
-      `✅ Removed worktree \`${target.branch}\` at \`${shortPath}\``,
-      session.threadId
-    );
+    await postSuccess(session, `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
 
     console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
   } catch (err) {
@@ -539,18 +497,12 @@ export async function disableWorktreePrompt(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
     return;
   }
 
   session.worktreePromptDisabled = true;
   persistSession(session);
 
-  await session.platform.createPost(
-    `✅ Worktree prompts disabled for this session`,
-    session.threadId
-  );
+  await postSuccess(session, `Worktree prompts disabled for this session`);
 }

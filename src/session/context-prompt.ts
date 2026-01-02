@@ -251,3 +251,194 @@ export function clearContextPromptTimeout(pending: PendingContextPrompt): void {
     pending.timeoutId = undefined;
   }
 }
+
+// =============================================================================
+// High-level Context Prompt Handling
+// =============================================================================
+
+/**
+ * Context for handling context prompts.
+ */
+export interface ContextPromptHandler {
+  registerPost: (postId: string, threadId: string) => void;
+  startTyping: (session: Session) => void;
+  persistSession: (session: Session) => void;
+  injectMetadataReminder: (message: string, session: Session) => string;
+  debug: boolean;
+}
+
+/**
+ * Handle reaction on a context prompt.
+ * Returns true if the reaction was handled.
+ */
+export async function handleContextPromptReaction(
+  session: Session,
+  emojiName: string,
+  username: string,
+  ctx: ContextPromptHandler
+): Promise<boolean> {
+  if (!session.pendingContextPrompt) return false;
+
+  const selection = getContextSelectionFromReaction(
+    emojiName,
+    session.pendingContextPrompt.availableOptions
+  );
+  if (selection === null) return false; // Not a valid context selection reaction
+
+  const pending = session.pendingContextPrompt;
+
+  // Clear the timeout
+  clearContextPromptTimeout(pending);
+
+  // Update the post to show selection
+  await updateContextPromptPost(session, pending.postId, selection, username);
+
+  // Get the queued prompt
+  const queuedPrompt = pending.queuedPrompt;
+
+  // Clear pending context prompt
+  session.pendingContextPrompt = undefined;
+
+  // Build message with or without context
+  let messageToSend = queuedPrompt;
+  if (selection > 0) {
+    const messages = await getThreadMessagesForContext(session, selection, pending.postId);
+    if (messages.length > 0) {
+      const contextPrefix = formatContextForClaude(messages);
+      messageToSend = contextPrefix + queuedPrompt;
+    }
+  }
+
+  // Increment message counter
+  session.messageCount++;
+
+  // Inject metadata reminder periodically
+  messageToSend = ctx.injectMetadataReminder(messageToSend, session);
+
+  // Send the message to Claude
+  if (session.claude.isRunning()) {
+    session.claude.sendMessage(messageToSend);
+    ctx.startTyping(session);
+  }
+
+  // Persist updated state
+  ctx.persistSession(session);
+
+  if (ctx.debug) {
+    const shortId = session.threadId.substring(0, 8);
+    console.log(`  🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
+  }
+
+  return true;
+}
+
+/**
+ * Handle context prompt timeout.
+ */
+export async function handleContextPromptTimeout(
+  session: Session,
+  ctx: ContextPromptHandler
+): Promise<void> {
+  if (!session.pendingContextPrompt) return;
+
+  const pending = session.pendingContextPrompt;
+
+  // Update the post to show timeout
+  await updateContextPromptPost(session, pending.postId, 'timeout');
+
+  // Get the queued prompt
+  const queuedPrompt = pending.queuedPrompt;
+
+  // Clear pending context prompt
+  session.pendingContextPrompt = undefined;
+
+  // Increment message counter
+  session.messageCount++;
+
+  // Inject metadata reminder periodically
+  const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
+
+  // Send the message without context
+  if (session.claude.isRunning()) {
+    session.claude.sendMessage(messageToSend);
+    ctx.startTyping(session);
+  }
+
+  // Persist updated state
+  ctx.persistSession(session);
+
+  if (ctx.debug) {
+    const shortId = session.threadId.substring(0, 8);
+    console.log(`  🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
+  }
+}
+
+/**
+ * Offer context prompt after a session restart or mid-thread start.
+ * If there's thread history, posts the context prompt and queues the message.
+ * If no history, sends the message immediately.
+ * Returns true if context prompt was posted, false if message was sent directly.
+ */
+export async function offerContextPrompt(
+  session: Session,
+  queuedPrompt: string,
+  ctx: ContextPromptHandler,
+  excludePostId?: string
+): Promise<boolean> {
+  // Get thread history count (exclude bot messages and the triggering message)
+  const messageCount = await getThreadContextCount(session, excludePostId);
+
+  if (messageCount === 0) {
+    // No previous messages, send directly
+    session.messageCount++;
+    const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(messageToSend);
+      ctx.startTyping(session);
+    }
+    return false;
+  }
+
+  if (messageCount === 1) {
+    // Only one message (the thread starter) - auto-include without asking
+    const messages = await getThreadMessagesForContext(session, 1, excludePostId);
+    let messageToSend = queuedPrompt;
+    if (messages.length > 0) {
+      const contextPrefix = formatContextForClaude(messages);
+      messageToSend = contextPrefix + queuedPrompt;
+    }
+
+    session.messageCount++;
+    messageToSend = ctx.injectMetadataReminder(messageToSend, session);
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(messageToSend);
+      ctx.startTyping(session);
+    }
+
+    if (ctx.debug) {
+      const shortId = session.threadId.substring(0, 8);
+      console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
+    }
+
+    return false;
+  }
+
+  // Post context prompt
+  const pending = await postContextPrompt(
+    session,
+    queuedPrompt,
+    messageCount,
+    ctx.registerPost,
+    () => handleContextPromptTimeout(session, ctx)
+  );
+
+  session.pendingContextPrompt = pending;
+  ctx.persistSession(session);
+
+  if (ctx.debug) {
+    const shortId = session.threadId.substring(0, 8);
+    console.log(`  🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
+  }
+
+  return true;
+}

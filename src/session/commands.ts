@@ -23,6 +23,7 @@ import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
+import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser } from './post-helpers.js';
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -91,10 +92,7 @@ export async function cancelSession(
   const shortId = session.threadId.substring(0, 8);
   console.log(`  🛑 Session (${shortId}…) cancelled by @${username}`);
 
-  await session.platform.createPost(
-    `🛑 **Session cancelled** by @${username}`,
-    session.threadId
-  );
+  await postCancelled(session, `**Session cancelled** by @${username}`);
 
   await ctx.killSession(session.threadId);
 }
@@ -107,10 +105,7 @@ export async function interruptSession(
   username: string
 ): Promise<void> {
   if (!session.claude.isRunning()) {
-    await session.platform.createPost(
-      `ℹ️ Session is idle, nothing to interrupt`,
-      session.threadId
-    );
+    await postInfo(session, `Session is idle, nothing to interrupt`);
     return;
   }
 
@@ -122,10 +117,7 @@ export async function interruptSession(
 
   if (interrupted) {
     console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
-    await session.platform.createPost(
-      `⏸️ **Interrupted** by @${username}`,
-      session.threadId
-    );
+    await postInterrupt(session, `**Interrupted** by @${username}`);
   }
 }
 
@@ -144,10 +136,7 @@ export async function changeDirectory(
 ): Promise<void> {
   // Only session owner or globally allowed users can change directory
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can change the working directory`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can change the working directory`);
     return;
   }
 
@@ -161,18 +150,12 @@ export async function changeDirectory(
 
   // Check if directory exists
   if (!existsSync(absoluteDir)) {
-    await session.platform.createPost(
-      `❌ Directory does not exist: \`${newDir}\``,
-      session.threadId
-    );
+    await postError(session, `Directory does not exist: \`${newDir}\``);
     return;
   }
 
   if (!statSync(absoluteDir).isDirectory()) {
-    await session.platform.createPost(
-      `❌ Not a directory: \`${newDir}\``,
-      session.threadId
-    );
+    await postError(session, `Not a directory: \`${newDir}\``);
     return;
   }
 
@@ -225,10 +208,7 @@ export async function changeDirectory(
   await updateSessionHeader(session, ctx);
 
   // Post confirmation
-  await session.platform.createPost(
-    `📂 **Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`,
-    session.threadId
-  );
+  await postCommand(session, `**Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`);
 
   // Update activity
   session.lastActivityAt = new Date();
@@ -257,18 +237,12 @@ export async function inviteUser(
 ): Promise<void> {
   // Only session owner or globally allowed users can invite
   if (session.startedBy !== invitedBy && !session.platform.isUserAllowed(invitedBy)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can invite others`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can invite others`);
     return;
   }
 
   session.sessionAllowedUsers.add(invitedUser);
-  await session.platform.createPost(
-    `✅ @${invitedUser} can now participate in this session (invited by @${invitedBy})`,
-    session.threadId
-  );
+  await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
   console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
   await updateSessionHeader(session, ctx);
   ctx.persistSession(session);
@@ -285,44 +259,29 @@ export async function kickUser(
 ): Promise<void> {
   // Only session owner or globally allowed users can kick
   if (session.startedBy !== kickedBy && !session.platform.isUserAllowed(kickedBy)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can kick others`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can kick others`);
     return;
   }
 
   // Can't kick session owner
   if (kickedUser === session.startedBy) {
-    await session.platform.createPost(
-      `⚠️ Cannot kick session owner @${session.startedBy}`,
-      session.threadId
-    );
+    await postWarning(session, `Cannot kick session owner @${session.startedBy}`);
     return;
   }
 
   // Can't kick globally allowed users
   if (session.platform.isUserAllowed(kickedUser)) {
-    await session.platform.createPost(
-      `⚠️ @${kickedUser} is globally allowed and cannot be kicked from individual sessions`,
-      session.threadId
-    );
+    await postWarning(session, `@${kickedUser} is globally allowed and cannot be kicked from individual sessions`);
     return;
   }
 
   if (session.sessionAllowedUsers.delete(kickedUser)) {
-    await session.platform.createPost(
-      `🚫 @${kickedUser} removed from this session by @${kickedBy}`,
-      session.threadId
-    );
+    await postUser(session, `@${kickedUser} removed from this session by @${kickedBy}`);
     console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
     await updateSessionHeader(session, ctx);
     ctx.persistSession(session);
   } else {
-    await session.platform.createPost(
-      `⚠️ @${kickedUser} was not in this session`,
-      session.threadId
-    );
+    await postWarning(session, `@${kickedUser} was not in this session`);
   }
 }
 
@@ -340,28 +299,19 @@ export async function enableInteractivePermissions(
 ): Promise<void> {
   // Only session owner or globally allowed users can change permissions
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await session.platform.createPost(
-      `⚠️ Only @${session.startedBy} or allowed users can change permissions`,
-      session.threadId
-    );
+    await postWarning(session, `Only @${session.startedBy} or allowed users can change permissions`);
     return;
   }
 
   // Can only downgrade, not upgrade
   if (!ctx.skipPermissions) {
-    await session.platform.createPost(
-      `ℹ️ Permissions are already interactive for this session`,
-      session.threadId
-    );
+    await postInfo(session, `Permissions are already interactive for this session`);
     return;
   }
 
   // Already enabled for this session
   if (session.forceInteractivePermissions) {
-    await session.platform.createPost(
-      `ℹ️ Interactive permissions already enabled for this session`,
-      session.threadId
-    );
+    await postInfo(session, `Interactive permissions already enabled for this session`);
     return;
   }
 
@@ -410,10 +360,7 @@ export async function enableInteractivePermissions(
   await updateSessionHeader(session, ctx);
 
   // Post confirmation
-  await session.platform.createPost(
-    `🔐 **Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`,
-    session.threadId
-  );
+  await postSecure(session, `**Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`);
   console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
 
   // Update activity and persist
