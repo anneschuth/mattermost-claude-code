@@ -263,3 +263,74 @@ export async function handleTaskToggleReaction(
 
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Existing worktree join prompt reaction handling
+// ---------------------------------------------------------------------------
+
+export interface ExistingWorktreeReactionContext extends ReactionContext {
+  switchToWorktree: (threadId: string, branchOrPath: string, username: string) => Promise<void>;
+  persistSession: (session: Session) => void;
+}
+
+/**
+ * Handle a reaction on an existing worktree prompt (join or skip).
+ * Returns true if the reaction was handled, false otherwise.
+ */
+export async function handleExistingWorktreeReaction(
+  session: Session,
+  postId: string,
+  emojiName: string,
+  username: string,
+  ctx: ExistingWorktreeReactionContext
+): Promise<boolean> {
+  const pending = session.pendingExistingWorktreePrompt;
+  if (!pending || pending.postId !== postId) {
+    return false;
+  }
+
+  // Only session owner or allowed users can respond
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    return false;
+  }
+
+  const isApprove = isApprovalEmoji(emojiName);
+  const isDeny = isDenialEmoji(emojiName);
+
+  if (!isApprove && !isDeny) {
+    return false;
+  }
+
+  const shortPath = pending.worktreePath.replace(process.env.HOME || '', '~');
+
+  if (isApprove) {
+    // Join the existing worktree
+    await session.platform.updatePost(
+      pending.postId,
+      `✅ Joining worktree for branch \`${pending.branch}\` at \`${shortPath}\``
+    );
+
+    // Clear the pending prompt before switching
+    session.pendingExistingWorktreePrompt = undefined;
+    ctx.persistSession(session);
+
+    // Switch to the existing worktree
+    await ctx.switchToWorktree(session.threadId, pending.worktreePath, pending.username);
+
+    console.log(`  🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
+  } else {
+    // Skip - continue in current directory
+    await session.platform.updatePost(
+      pending.postId,
+      `✅ Continuing in current directory (skipped by @${username})`
+    );
+
+    // Clear the pending prompt
+    session.pendingExistingWorktreePrompt = undefined;
+    ctx.persistSession(session);
+
+    console.log(`  ❌ @${username} skipped joining existing worktree ${pending.branch}`);
+  }
+
+  return true;
+}

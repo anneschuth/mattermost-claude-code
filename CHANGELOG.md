@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Working directory (`📂 ~/projects`)
   - Hostname (`💻 hostname`) - machine name for identification
 
+### Improved
+- **Existing worktree handling** - When a worktree already exists for a branch, the bot now offers to join it with a reaction prompt (👍 to join, ❌ to skip) instead of just showing a warning message that required manually typing `!worktree switch`
+
 ## [0.22.1] - 2026-01-01
 
 ### Fixed

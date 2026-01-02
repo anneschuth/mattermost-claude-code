@@ -300,6 +300,22 @@ export class SessionManager {
       return;
     }
 
+    // Handle existing worktree join prompt reactions
+    if (session.pendingExistingWorktreePrompt?.postId === postId) {
+      const handled = await reactions.handleExistingWorktreeReaction(
+        session,
+        postId,
+        emojiName,
+        username,
+        {
+          ...this.getReactionContext(),
+          switchToWorktree: (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user),
+          persistSession: (s) => this.persistSession(s),
+        }
+      );
+      if (handled) return;
+    }
+
     // Handle context prompt reactions
     if (session.pendingContextPrompt?.postId === postId) {
       await this.handleContextPromptReaction(session, emojiName, username);
@@ -841,6 +857,7 @@ export class SessionManager {
       stopTyping: (s) => this.stopTyping(s),
       offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
+      registerPost: (postId, tid) => this.registerPost(postId, tid),
     });
   }
 

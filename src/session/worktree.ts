@@ -193,6 +193,7 @@ export async function createAndSwitchToWorktree(
     stopTyping: (session: Session) => void;
     offerContextPrompt: (session: Session, queuedPrompt: string) => Promise<boolean>;
     appendSystemPrompt?: string;
+    registerPost: (postId: string, threadId: string) => void;
   }
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
@@ -220,10 +221,28 @@ export async function createAndSwitchToWorktree(
   // Check if worktree already exists for this branch
   const existing = await findWorktreeByBranch(repoRoot, branch);
   if (existing && !existing.isMain) {
-    await session.platform.createPost(
-      `⚠️ Worktree for branch \`${branch}\` already exists at \`${existing.path}\`. Use \`!worktree switch ${branch}\` to switch to it.`,
+    // Post interactive prompt asking if user wants to join the existing worktree
+    const shortPath = existing.path.replace(process.env.HOME || '', '~');
+    const post = await session.platform.createInteractivePost(
+      `🌿 **Worktree for branch \`${branch}\` already exists** at \`${shortPath}\`.\n` +
+      `React with 👍 to join this worktree, or ❌ to continue in the current directory.`,
+      ['+1', 'x'],  // thumbsup and x emoji names
       session.threadId
     );
+
+    // Store the pending prompt for reaction handling
+    session.pendingExistingWorktreePrompt = {
+      postId: post.id,
+      branch,
+      worktreePath: existing.path,
+      username,
+    };
+
+    // Register the post for reaction routing
+    options.registerPost(post.id, session.threadId);
+
+    // Persist the session state
+    options.persistSession(session);
     return;
   }
 

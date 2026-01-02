@@ -43,6 +43,16 @@ export interface PendingMessageApproval {
   fromUser: string;
 }
 
+/**
+ * Pending prompt asking user if they want to join an existing worktree
+ */
+export interface PendingExistingWorktreePrompt {
+  postId: string;
+  branch: string;
+  worktreePath: string;
+  username: string;  // User who triggered the prompt
+}
+
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -125,6 +135,7 @@ export interface Session {
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
+  pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt; // Waiting for user to confirm joining existing worktree
 
   // Thread context prompt support
   pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
