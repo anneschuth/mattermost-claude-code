@@ -453,10 +453,14 @@ async function main() {
 
     session.killAllSessions();
     mattermost.disconnect();
-    process.exit(0);
+    // Don't call process.exit() here - let the signal handler do it after we resolve
   };
-  process.on('SIGINT', () => { shutdown(); });
-  process.on('SIGTERM', () => { shutdown(); });
+  process.on('SIGINT', () => {
+    shutdown().finally(() => process.exit(0));
+  });
+  process.on('SIGTERM', () => {
+    shutdown().finally(() => process.exit(0));
+  });
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
