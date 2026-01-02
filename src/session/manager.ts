@@ -477,6 +477,34 @@ export class SessionManager {
       return false;
     }
 
+    if (messageCount === 1) {
+      // Only one message (the thread starter) - auto-include without asking
+      const messages = await contextPrompt.getThreadMessagesForContext(session, 1, excludePostId);
+      let messageToSend = queuedPrompt;
+      if (messages.length > 0) {
+        const contextPrefix = contextPrompt.formatContextForClaude(messages);
+        messageToSend = contextPrefix + queuedPrompt;
+      }
+
+      // Increment message counter
+      session.messageCount++;
+
+      // Inject metadata reminder periodically
+      messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
+
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(messageToSend);
+        this.startTyping(session);
+      }
+
+      if (this.debug) {
+        const shortId = session.threadId.substring(0, 8);
+        console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
+      }
+
+      return false;
+    }
+
     // Post context prompt
     const pending = await contextPrompt.postContextPrompt(
       session,
