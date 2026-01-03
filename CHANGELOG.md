@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-01-03
+
+### Changed
+- **Unified SessionContext** - Replaced 4 separate context interfaces (LifecycleContext, EventContext, ReactionContext, CommandContext) with a single unified SessionContext for cleaner module dependencies
+- **Centralized error handling** - Added `error-handler.ts` with consistent error patterns across all session modules
+- **DRY post helpers** - New `post-helpers.ts` with `postInfo`, `postError`, `postWarning` utilities to reduce code duplication
+- **Component-based logging** - Migrated from console.log to `createLogger` utility with component prefixes (`[lifecycle]`, `[events]`, `[commands]`, etc.)
+- **Platform-agnostic comments** - Updated code comments to be generic rather than Mattermost-specific
+
+### Added
+- **Integration tests** - New integration tests for lifecycle and platform modules
+- **Format utilities** - New `src/utils/format.ts` with ID formatting and time/number helpers
+
 ## [0.28.1] - 2026-01-02
 
 ### Fixed
