@@ -27,6 +27,7 @@ import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
+import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
 
 const log = createLogger('commands');
 
@@ -497,12 +498,21 @@ export async function updateSessionHeader(
   rows.push(`| 📂 **Directory** | \`${shortDir}\` |`);
   rows.push(`| 👤 **Started by** | @${session.startedBy} |`);
 
-  // Show worktree info if active
+  // Show worktree info if active, otherwise show git branch if in a git repo
   if (session.worktreeInfo) {
     const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
     rows.push(
       `| 🌿 **Worktree** | \`${session.worktreeInfo.branch}\` (from \`${shortRepoRoot}\`) |`
     );
+  } else {
+    // Check if we're in a git repository and get the current branch
+    const isRepo = await isGitRepository(session.workingDir);
+    if (isRepo) {
+      const branch = await getCurrentBranch(session.workingDir);
+      if (branch) {
+        rows.push(`| 🌿 **Branch** | \`${branch}\` |`);
+      }
+    }
   }
 
   // Show pull request link if available

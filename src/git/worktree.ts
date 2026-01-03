@@ -62,6 +62,20 @@ export async function getRepositoryRoot(dir: string): Promise<string> {
 }
 
 /**
+ * Get the current branch name for a directory
+ * Returns null if not on a branch (detached HEAD) or not in a git repo
+ */
+export async function getCurrentBranch(dir: string): Promise<string | null> {
+  try {
+    const branch = await execGit(['rev-parse', '--abbrev-ref', 'HEAD'], dir);
+    // If HEAD is detached, git returns "HEAD"
+    return branch === 'HEAD' ? null : branch;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Check if there are uncommitted changes (staged or unstaged)
  */
 export async function hasUncommittedChanges(dir: string): Promise<boolean> {
