@@ -14,6 +14,46 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('streaming');
 
 // ---------------------------------------------------------------------------
+// Task display helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the minimized task list message from the full content.
+ * Format: "---\n📋 **Tasks** (X/Y · Z%) · 🔄 TaskName 🔽"
+ */
+function getMinimizedTaskContent(fullContent: string): string {
+  // Parse progress from content (format: "📋 **Tasks** (X/Y · Z%)")
+  const progressMatch = fullContent.match(/\((\d+)\/(\d+) · (\d+)%\)/);
+  const completed = progressMatch ? parseInt(progressMatch[1], 10) : 0;
+  const total = progressMatch ? parseInt(progressMatch[2], 10) : 0;
+  const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
+
+  // Find current in-progress task
+  const inProgressMatch = fullContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  let currentTaskText = '';
+  if (inProgressMatch) {
+    const taskName = inProgressMatch[1];
+    const elapsed = inProgressMatch[2] ? ` (${inProgressMatch[2]}s)` : '';
+    currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
+  }
+
+  return `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+}
+
+/**
+ * Get the task content to display based on minimized state.
+ * If minimized, returns the compact summary; otherwise the full content.
+ */
+function getTaskDisplayContent(session: Session): string {
+  if (!session.lastTasksContent) {
+    return '';
+  }
+  return session.tasksMinimized
+    ? getMinimizedTaskContent(session.lastTasksContent)
+    : session.lastTasksContent;
+}
+
+// ---------------------------------------------------------------------------
 // Message breaking thresholds
 // ---------------------------------------------------------------------------
 
@@ -389,9 +429,13 @@ async function bumpTasksToBottomWithContent(
 
   // Create a new task list post at the bottom (if we have content to show)
   if (oldTasksContent) {
+    // Preserve the minimized state for content, but always add the toggle emoji
+    // (emoji is always present as a clickable button; user clicks to toggle)
+    const displayContent = getTaskDisplayContent(session);
+
     const newTasksPost = await session.platform.createInteractivePost(
-      oldTasksContent,
-      [TASK_TOGGLE_EMOJIS[0]], // Add toggle emoji
+      displayContent,
+      [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
       session.threadId
     );
     session.tasksPostId = newTasksPost.id;
@@ -431,10 +475,13 @@ export async function bumpTasksToBottom(
     // Delete the old task post
     await session.platform.deletePost(session.tasksPostId);
 
-    // Create a new task post at the bottom with the toggle emoji
+    // Create a new task post at the bottom, preserving minimized state for content
+    // but always adding the toggle emoji (it's always present as a clickable button)
+    const displayContent = getTaskDisplayContent(session);
+
     const newPost = await session.platform.createInteractivePost(
-      session.lastTasksContent,
-      [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+      displayContent,
+      [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
       session.threadId
     );
     session.tasksPostId = newPost.id;

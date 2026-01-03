@@ -522,6 +522,26 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         wsLogger.debug(`Failed to parse reaction: ${err}`);
       }
     }
+
+    // Handle reaction_removed events
+    if (event.event === 'reaction_removed') {
+      const data = event.data as unknown as ReactionAddedEventData;
+      if (!data.reaction) return;
+
+      try {
+        const reaction = JSON.parse(data.reaction) as MattermostReaction;
+
+        // Ignore reactions from ourselves
+        if (reaction.user_id === this.botUserId) return;
+
+        // Get user info and emit (with normalized types)
+        this.getUser(reaction.user_id).then((user) => {
+          this.emit('reaction_removed', this.normalizePlatformReaction(reaction), user);
+        });
+      } catch (err) {
+        wsLogger.debug(`Failed to parse reaction: ${err}`);
+      }
+    }
   }
 
   private scheduleReconnect(): void {
