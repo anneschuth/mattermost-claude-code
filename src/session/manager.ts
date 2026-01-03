@@ -520,6 +520,7 @@ export class SessionManager {
       sessionDescription: session.sessionDescription,
       pullRequestUrl: session.pullRequestUrl,
       messageCount: session.messageCount,
+      resumeFailCount: session.resumeFailCount,
     };
     this.sessionStore.save(session.sessionId, state);
   }

@@ -157,6 +157,9 @@ export interface Session {
   // Flag to track if this session was resumed after bot restart
   isResumed: boolean;
 
+  // Count of consecutive resume failures (for giving up after too many)
+  resumeFailCount: number;
+
   // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
   wasInterrupted: boolean;
 

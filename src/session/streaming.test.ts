@@ -107,6 +107,7 @@ function createTestSession(platform: PlatformClient): Session {
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: false,
+    resumeFailCount: 0,
     wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),

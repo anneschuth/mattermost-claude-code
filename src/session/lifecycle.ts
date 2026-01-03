@@ -16,7 +16,7 @@ import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
-import { postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
+import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 
 const log = createLogger('lifecycle');
@@ -278,6 +278,7 @@ export async function startSession(
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: false,
+    resumeFailCount: 0,
     wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
@@ -455,6 +456,7 @@ export async function resumeSession(
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: true,
+    resumeFailCount: state.resumeFailCount || 0,
     wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
@@ -673,18 +675,35 @@ export async function handleExit(
     return;
   }
 
-  // For resumed sessions that exit with error, preserve for retry
+  // For resumed sessions that exit with error, track failures and give up after too many
   if (session.isResumed && code !== 0) {
-    log.debug(`Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
+    const MAX_RESUME_FAILURES = 3;
+    session.resumeFailCount = (session.resumeFailCount || 0) + 1;
+
+    log.debug(`Resumed session ${shortId}... failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
-    await withErrorHandling(
-      () => postWarning(session, `**Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`),
-      { action: 'Post session resume failure', session }
-    );
+
+    if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
+      // Too many failures - give up and delete from persistence
+      log.warn(`Session ${shortId}... exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
+      ctx.ops.unpersistSession(session.sessionId);
+      await withErrorHandling(
+        () => postError(session, `**Session permanently failed** after ${MAX_RESUME_FAILURES} resume attempts (exit code ${code}). Session data has been removed. Please start a new session.`),
+        { action: 'Post session permanent failure', session }
+      );
+    } else {
+      // Still have retries left - persist with updated fail count
+      ctx.ops.persistSession(session);
+      await withErrorHandling(
+        () => postWarning(session, `**Session resume failed** (exit code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
+        { action: 'Post session resume failure', session }
+      );
+    }
+
     // Update sticky channel message after session failure
     await ctx.ops.updateStickyMessage();
     return;

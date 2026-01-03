@@ -64,6 +64,8 @@ export interface PersistedSession {
   pullRequestUrl?: string;                       // Full URL to PR (GitHub, GitLab, Bitbucket, Azure DevOps, etc.)
   // Message counter
   messageCount?: number;                         // Number of user messages sent to Claude
+  // Resume failure tracking
+  resumeFailCount?: number;                      // Count of consecutive resume failures
   // History retention (soft delete)
   cleanedAt?: string;                            // ISO date when session was soft-deleted (kept for history)
 }
