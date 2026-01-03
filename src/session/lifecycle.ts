@@ -680,12 +680,28 @@ export async function handleExit(
     const MAX_RESUME_FAILURES = 3;
     session.resumeFailCount = (session.resumeFailCount || 0) + 1;
 
-    log.debug(`Resumed session ${shortId}... failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}`);
+    // Check if this is a permanent failure that shouldn't be retried
+    const isPermanent = session.claude.isPermanentFailure();
+    const permanentReason = session.claude.getPermanentFailureReason();
+
+    log.debug(`Resumed session ${shortId}... failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
+
+    // Immediately give up on permanent failures
+    if (isPermanent) {
+      log.warn(`Session ${shortId}... detected permanent failure, removing from persistence: ${permanentReason}`);
+      ctx.ops.unpersistSession(session.sessionId);
+      await withErrorHandling(
+        () => postError(session, `**Session cannot be resumed** — ${permanentReason}\n\nPlease start a new session.`),
+        { action: 'Post session permanent failure', session }
+      );
+      await ctx.ops.updateStickyMessage();
+      return;
+    }
 
     if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence

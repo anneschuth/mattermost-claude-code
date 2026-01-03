@@ -78,6 +78,7 @@ export class ClaudeCli extends EventEmitter {
   public debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
   private statusFilePath: string | null = null;
   private lastStatusData: StatusLineData | null = null;
+  private stderrBuffer = '';  // Capture stderr for error detection
 
   constructor(options: ClaudeCliOptions) {
     super();
@@ -148,6 +149,9 @@ export class ClaudeCli extends EventEmitter {
 
   start(): void {
     if (this.process) throw new Error('Already running');
+
+    // Clear stderr buffer from any previous run
+    this.stderrBuffer = '';
 
     const claudePath = process.env.CLAUDE_PATH || 'claude';
     const args = [
@@ -240,7 +244,13 @@ export class ClaudeCli extends EventEmitter {
     });
 
     this.process.stderr?.on('data', (chunk: Buffer) => {
-      log.debug(`stderr: ${chunk.toString().trim()}`);
+      const text = chunk.toString();
+      this.stderrBuffer += text;
+      // Keep only the last 10KB of stderr to prevent memory issues
+      if (this.stderrBuffer.length > 10240) {
+        this.stderrBuffer = this.stderrBuffer.slice(-10240);
+      }
+      log.debug(`stderr: ${text.trim()}`);
     });
 
     this.process.on('error', (err) => {
@@ -312,6 +322,45 @@ export class ClaudeCli extends EventEmitter {
 
   isRunning(): boolean {
     return this.process !== null;
+  }
+
+  /**
+   * Get the last stderr output (up to 10KB).
+   */
+  getLastStderr(): string {
+    return this.stderrBuffer;
+  }
+
+  /**
+   * Check if the last failure was a permanent error that shouldn't be retried.
+   * These are errors in the Claude CLI itself that won't be fixed by retrying.
+   */
+  isPermanentFailure(): boolean {
+    const stderr = this.stderrBuffer;
+
+    // Browser bridge temp file doesn't exist (happens when resuming sessions that had chrome enabled)
+    if (stderr.includes('claude-mcp-browser-bridge') &&
+        (stderr.includes('EOPNOTSUPP') || stderr.includes('ENOENT'))) {
+      return true;
+    }
+
+    // Add more permanent failure patterns here as we discover them
+
+    return false;
+  }
+
+  /**
+   * Get a human-readable description of a permanent failure.
+   */
+  getPermanentFailureReason(): string | null {
+    const stderr = this.stderrBuffer;
+
+    if (stderr.includes('claude-mcp-browser-bridge') &&
+        (stderr.includes('EOPNOTSUPP') || stderr.includes('ENOENT'))) {
+      return 'Claude browser bridge state from a previous session is no longer accessible. This typically happens when a session with Chrome integration is resumed after a restart.';
+    }
+
+    return null;
   }
 
   kill(): void {
