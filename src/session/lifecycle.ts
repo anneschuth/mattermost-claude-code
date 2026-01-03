@@ -747,7 +747,7 @@ export async function killSession(
 
   // Explicitly unpersist if requested
   if (unpersist) {
-    ctx.ops.unpersistSession(session.threadId);
+    ctx.ops.unpersistSession(session.sessionId);
   }
 
   log.info(`✖ Session killed (${shortId}…) — ${ctx.state.sessions.size} active`);
