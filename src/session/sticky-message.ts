@@ -14,6 +14,7 @@ import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { VERSION } from '../version.js';
 import { createLogger } from '../utils/logger.js';
+import { formatPullRequestLink } from '../utils/pr-detector.js';
 
 const log = createLogger('sticky');
 
@@ -358,7 +359,10 @@ export async function buildStickyMessage(
     const taskProgress = getTaskProgress(session);
     const progressStr = taskProgress ? ` · ${taskProgress}` : '';
 
-    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr} · ${time}`);
+    // Build PR link if available (compact format on same line)
+    const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
+
+    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {

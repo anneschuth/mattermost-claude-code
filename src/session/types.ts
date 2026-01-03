@@ -187,6 +187,9 @@ export interface Session {
   sessionTitle?: string;       // Short title describing the session topic (3-6 words)
   sessionDescription?: string; // Longer description of what's happening (1-2 sentences)
 
+  // Pull request URL (detected from Claude output when PR is created)
+  pullRequestUrl?: string;     // Full URL to the PR (GitHub, GitLab, Bitbucket, Azure DevOps, etc.)
+
   // Message counter for periodic reminders
   messageCount: number;  // Number of user messages sent to Claude in this session
 

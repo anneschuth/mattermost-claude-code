@@ -60,6 +60,8 @@ export interface PersistedSession {
   // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
   sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)
+  // Pull request URL
+  pullRequestUrl?: string;                       // Full URL to PR (GitHub, GitLab, Bitbucket, Azure DevOps, etc.)
   // Message counter
   messageCount?: number;                         // Number of user messages sent to Claude
 }

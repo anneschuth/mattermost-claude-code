@@ -466,6 +466,7 @@ export async function resumeSession(
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
     sessionTitle: state.sessionTitle,
     sessionDescription: state.sessionDescription,
+    pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
     statusBarTimer: null,  // Will be started after first result event
   };

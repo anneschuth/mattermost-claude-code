@@ -26,6 +26,7 @@ import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
+import { formatPullRequestLink } from '../utils/pr-detector.js';
 
 const log = createLogger('commands');
 
@@ -502,6 +503,11 @@ export async function updateSessionHeader(
     rows.push(
       `| 🌿 **Worktree** | \`${session.worktreeInfo.branch}\` (from \`${shortRepoRoot}\`) |`
     );
+  }
+
+  // Show pull request link if available
+  if (session.pullRequestUrl) {
+    rows.push(`| 🔗 **Pull Request** | ${formatPullRequestLink(session.pullRequestUrl)} |`);
   }
 
   if (otherParticipants) {

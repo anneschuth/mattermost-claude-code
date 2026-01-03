@@ -21,6 +21,7 @@ import {
 import { withErrorHandling } from './error-handler.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
+import { extractPullRequestUrl } from '../utils/pr-detector.js';
 
 const log = createLogger('events');
 
@@ -91,6 +92,33 @@ const DESCRIPTION_CONFIG: MetadataConfig = {
   maxLength: 100,
   placeholder: '<brief description>',
 };
+
+/**
+ * Extract and update pull request URL from text.
+ * Unlike title/description, PR URLs are detected from the actual content
+ * (not from special markers), as Claude outputs them when running gh pr create.
+ *
+ * Only updates if we don't already have a PR URL (first one wins).
+ */
+function extractAndUpdatePullRequest(
+  text: string,
+  session: Session,
+  ctx: SessionContext
+): void {
+  // Skip if we already have a PR URL
+  if (session.pullRequestUrl) return;
+
+  const prUrl = extractPullRequestUrl(text);
+  if (prUrl) {
+    session.pullRequestUrl = prUrl;
+    log.info(`🔗 Detected PR URL: ${prUrl}`);
+
+    // Persist and update UI
+    ctx.ops.persistSession(session);
+    ctx.ops.updateStickyMessage().catch(() => {});
+    ctx.ops.updateSessionHeader(session).catch(() => {});
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Main event handler
@@ -207,6 +235,9 @@ function formatEvent(
 
           // Extract and update session description if present
           text = extractAndUpdateMetadata(text, session, DESCRIPTION_CONFIG, 'sessionDescription', ctx);
+
+          // Detect and store pull request URLs
+          extractAndUpdatePullRequest(text, session, ctx);
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {

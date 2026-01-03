@@ -518,6 +518,7 @@ export class SessionManager {
       timeoutPostId: session.timeoutPostId,
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
+      pullRequestUrl: session.pullRequestUrl,
       messageCount: session.messageCount,
     };
     this.sessionStore.save(session.sessionId, state);
