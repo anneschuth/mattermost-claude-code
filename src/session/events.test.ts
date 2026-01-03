@@ -319,11 +319,19 @@ describe('handleEvent with result event (usage stats)', () => {
     ctx = createSessionContext();
   });
 
-  test('extracts usage stats from result event with modelUsage', () => {
+  test('extracts usage stats from result event with per-request usage', () => {
     const event = {
       type: 'result' as const,
       subtype: 'success',
       total_cost_usd: 0.072784,
+      // Per-request usage (accurate for context window)
+      usage: {
+        input_tokens: 500,
+        cache_creation_input_tokens: 1000,
+        cache_read_input_tokens: 18500,
+        output_tokens: 200,
+      },
+      // Cumulative billing per model
       modelUsage: {
         'claude-opus-4-5-20251101': {
           inputTokens: 2471,
@@ -352,10 +360,35 @@ describe('handleEvent with result event (usage stats)', () => {
     expect(session.usageStats?.modelDisplayName).toBe('Opus 4.5');
     expect(session.usageStats?.contextWindowSize).toBe(200000);
     expect(session.usageStats?.totalCostUSD).toBe(0.072784);
-    // Context tokens (primary model only): 2471 + 12671 = 15142
-    expect(session.usageStats?.contextTokens).toBe(15142);
-    // Total tokens: 2471+193+12671+7378 + 2341+163+0+0 = 25217
+    // Context tokens from per-request usage: 500 + 1000 + 18500 = 20000
+    expect(session.usageStats?.contextTokens).toBe(20000);
+    // Total tokens (billing): 2471+193+12671+7378 + 2341+163+0+0 = 25217
     expect(session.usageStats?.totalTokensUsed).toBe(25217);
+  });
+
+  test('falls back to modelUsage for context tokens when usage is missing', () => {
+    const event = {
+      type: 'result' as const,
+      subtype: 'success',
+      total_cost_usd: 0.05,
+      // No usage field - should fall back to modelUsage
+      modelUsage: {
+        'claude-opus-4-5-20251101': {
+          inputTokens: 2000,
+          outputTokens: 100,
+          cacheReadInputTokens: 8000,
+          cacheCreationInputTokens: 5000,
+          contextWindow: 200000,
+          costUSD: 0.05,
+        },
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(session.usageStats).toBeDefined();
+    // Fallback: primary model's inputTokens + cacheReadInputTokens = 2000 + 8000 = 10000
+    expect(session.usageStats?.contextTokens).toBe(10000);
   });
 
   test('identifies primary model by highest cost', () => {

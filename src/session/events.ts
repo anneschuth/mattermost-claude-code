@@ -634,6 +634,14 @@ interface ResultEvent {
   type: 'result';
   subtype?: string;
   total_cost_usd?: number;
+  /** Per-request token usage (accurate for context window calculation) */
+  usage?: {
+    input_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+    output_tokens: number;
+  };
+  /** Cumulative billing per model across the session */
   modelUsage?: Record<string, {
     inputTokens: number;
     outputTokens: number;
@@ -679,7 +687,6 @@ function updateUsageStats(
   let primaryModel = '';
   let highestCost = 0;
   let contextWindowSize = 200000; // Default
-  let contextTokens = 0; // Primary model's context usage estimate
 
   const modelUsage: Record<string, ModelTokenUsage> = {};
   let totalTokensUsed = 0;
@@ -703,9 +710,21 @@ function updateUsageStats(
       highestCost = usage.costUSD;
       primaryModel = modelId;
       contextWindowSize = usage.contextWindow;
-      // Context estimate: input + cache read (what's actually in context window)
-      contextTokens = usage.inputTokens + usage.cacheReadInputTokens;
     }
+  }
+
+  // Calculate context tokens from per-request usage (accurate)
+  // Falls back to primary model's cumulative tokens if usage not available
+  let contextTokens = 0;
+  if (result.usage) {
+    // Per-request usage: actual tokens in current context window
+    contextTokens = result.usage.input_tokens +
+      result.usage.cache_creation_input_tokens +
+      result.usage.cache_read_input_tokens;
+  } else if (primaryModel && result.modelUsage[primaryModel]) {
+    // Fallback: estimate from primary model's cumulative billing
+    const primary = result.modelUsage[primaryModel];
+    contextTokens = primary.inputTokens + primary.cacheReadInputTokens;
   }
 
   // Create or update usage stats
@@ -722,9 +741,12 @@ function updateUsageStats(
 
   session.usageStats = usageStats;
 
+  const contextPct = contextWindowSize > 0
+    ? Math.round((contextTokens / contextWindowSize) * 100)
+    : 0;
   log.debug(
     `Updated usage stats: ${usageStats.modelDisplayName}, ` +
-    `${usageStats.totalTokensUsed}/${usageStats.contextWindowSize} tokens, ` +
+    `context ${contextTokens}/${contextWindowSize} (${contextPct}%), ` +
     `$${usageStats.totalCostUSD.toFixed(4)}`
   );
 
