@@ -21,11 +21,17 @@
 
 - **Real-time streaming** - Claude's responses stream live to Mattermost
 - **Multiple concurrent sessions** - Each thread gets its own Claude session
+- **Session persistence** - Sessions survive bot restarts and resume automatically
 - **Session collaboration** - Invite others to participate in your session
 - **Interactive permissions** - Approve Claude's actions via emoji reactions
 - **Plan approval** - Review and approve Claude's plans before execution
-- **Task tracking** - Live todo list updates as Claude works
+- **Task tracking** - Live todo list updates as Claude works (collapsible)
 - **Code diffs** - See exactly what Claude is changing
+- **Image attachments** - Attach images for Claude to analyze
+- **Thread context** - Start mid-thread and include previous messages as context
+- **Git worktrees** - Isolate changes in separate branches/directories
+- **Chrome automation** - Control Chrome browser for web tasks
+- **Keep-alive** - Prevents system sleep while sessions are active
 
 ## How it works
 
@@ -149,7 +155,7 @@ Type `!help` in any session thread to see available commands:
 |:--------|:------------|
 | `!help` | Show available commands |
 | `!release-notes` | Show release notes for current version |
-| `!context` | Show context usage (tokens used/remaining) |
+| `!context` | Show context usage (accurate % from Claude's status line) |
 | `!cost` | Show token usage and cost for this session |
 | `!compact` | Compress context to free up space |
 | `!cd <path>` | Change working directory (restarts Claude) |
@@ -173,7 +179,7 @@ Session owners can temporarily allow others to participate:
 !invite @colleague
 ```
 
-The colleague can now send messages in this session thread.
+The colleague can now send messages in this session thread. The bot validates that the user exists before inviting.
 
 ### Kick Users
 
@@ -182,6 +188,8 @@ Remove an invited user from the session:
 ```
 !kick @colleague
 ```
+
+The bot validates that the user exists before attempting to kick them.
 
 ### Message Approval
 
@@ -279,27 +287,21 @@ When Claude asks questions with multiple choice options:
 
 ### Task List
 
-Claude's todo list shows live in Mattermost:
+Claude's todo list shows live in Mattermost and stays at the bottom of the thread:
 
-- ⬜ Pending
-- 🔄 In progress
+- ○ Pending
+- 🔄 In progress (shows elapsed time)
 - ✅ Completed
+
+React with 🔽 to collapse/expand the task list. Progress shown as `(2/5 · 40%)`.
+
+### Channel Dashboard
+
+A pinned message at the bottom of the channel shows active sessions and recent history with system status, pending prompts, and current tasks. Session history is retained for up to 3 days.
 
 ### Session Header
 
-The session start message shows current status and updates when participants change:
-
-```
-🤖 claude-threads v0.5.1
-
-| | |
-|:--|:--|
-| 📂 Directory | ~/project |
-| 👤 Started by | @alice |
-| 👥 Participants | @bob, @carol |
-| 🔢 Session | #1 of 5 max |
-| 🔐 Permissions | Interactive |
-```
+Each session shows a real-time status bar with context usage (color-coded 🟢🟡🟠🔴), model name, cost, and uptime. The header table displays topic, directory, git branch, participants, and PR link (when working in a worktree with an associated pull request).
 
 ### Cancel Session
 
@@ -307,6 +309,38 @@ Stop a running session:
 
 - Type `!stop` or `!cancel` in the thread
 - React with ❌ or 🛑 to any message in the thread
+
+### Session Persistence
+
+Sessions automatically survive bot restarts:
+
+- Active sessions are saved to `~/.config/claude-threads/sessions.json`
+- On restart, sessions resume with full context via Claude's `--resume` flag
+- Users see "Session resumed after bot restart" notification
+- Timed-out sessions can be resumed by reacting with 🔄 or sending a new message
+
+### Image Attachments
+
+Attach images (JPEG, PNG, GIF, WebP) to your messages and Claude will analyze them. Works for both new sessions and follow-up messages.
+
+### Thread Context
+
+When starting a session mid-thread (replying to existing conversation), you'll be prompted to include previous messages as context. Options include last 3, 5, 10, or all messages. Single-message threads auto-include context.
+
+## Chrome Integration
+
+Enable browser automation with `--chrome` or `chrome: true` in config:
+
+```bash
+claude-threads --chrome
+```
+
+Claude can then control your Chrome browser for web tasks like:
+- Taking screenshots and analyzing pages
+- Filling forms and clicking buttons
+- Navigating and extracting content
+
+Requires the [Claude in Chrome](https://chromewebstore.google.com/detail/claude-in-chrome/) extension.
 
 ## Access Control
 
@@ -375,6 +409,10 @@ platforms:
 | `SESSION_TIMEOUT_MS` | Idle timeout in ms (default: `1800000` = 30 min) |
 | `NO_UPDATE_NOTIFIER` | Set to `1` to disable update checks |
 | `DEBUG` | Set to `1` for verbose logging |
+
+### Keep-Alive
+
+The bot automatically prevents system sleep while sessions are active (uses `caffeinate` on macOS, `systemd-inhibit` on Linux). Disable with `--no-keep-alive` or `keepAlive: false` in config.
 
 ## Code Display
 
