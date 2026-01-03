@@ -56,6 +56,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   private readonly HEARTBEAT_INTERVAL_MS = 30000; // Check every 30s
   private readonly HEARTBEAT_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
 
+  // Track last processed post for message recovery after disconnection
+  private lastProcessedPostId: string | null = null;
+  private isReconnecting = false;
+
   constructor(platformConfig: MattermostPlatformConfig) {
     super();
     this.platformId = platformConfig.id;
@@ -359,6 +363,42 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
+  /**
+   * Get channel posts created after a specific post ID.
+   * Used for recovering missed messages after a disconnection.
+   *
+   * Note: Uses 'after' parameter instead of 'since' timestamp because
+   * the 'since' parameter has known issues with missing posts.
+   * See: https://github.com/mattermost/mattermost/issues/13846
+   */
+  async getChannelPostsAfter(afterPostId: string): Promise<PlatformPost[]> {
+    try {
+      const response = await this.api<{
+        order: string[];
+        posts: Record<string, MattermostPost>;
+      }>('GET', `/channels/${this.channelId}/posts?after=${afterPostId}&per_page=100`);
+
+      const posts: PlatformPost[] = [];
+      for (const postId of response.order) {
+        const post = response.posts[postId];
+        if (!post) continue;
+
+        // Skip bot's own messages
+        if (post.user_id === this.botUserId) continue;
+
+        posts.push(this.normalizePlatformPost(post));
+      }
+
+      // Sort by createAt (oldest first) so they're processed in order
+      posts.sort((a, b) => (a.createAt ?? 0) - (b.createAt ?? 0));
+
+      return posts;
+    } catch (err) {
+      log.warn(`Failed to get channel posts after ${afterPostId}: ${err}`);
+      return [];
+    }
+  }
+
   // Connect to WebSocket
   async connect(): Promise<void> {
     // Get bot user first
@@ -398,6 +438,15 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             this.reconnectAttempts = 0;
             this.startHeartbeat();
             this.emit('connected');
+
+            // Recover missed messages after reconnection
+            if (this.isReconnecting && this.lastProcessedPostId) {
+              this.recoverMissedMessages().catch((err) => {
+                log.warn(`Failed to recover missed messages: ${err}`);
+              });
+            }
+            this.isReconnecting = false;
+
             resolve();
           }
         } catch (err) {
@@ -434,6 +483,9 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
         // Only handle messages in our channel
         if (post.channel_id !== this.channelId) return;
+
+        // Track last processed post for message recovery after disconnection
+        this.lastProcessedPostId = post.id;
 
         // Get user info and emit (with normalized types)
         this.getUser(post.user_id).then((user) => {
@@ -478,6 +530,9 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       return;
     }
 
+    // Mark that we're reconnecting (to trigger message recovery)
+    this.isReconnecting = true;
+
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
@@ -515,6 +570,41 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
+    }
+  }
+
+  /**
+   * Recover messages that were posted while disconnected.
+   * Fetches posts after the last processed post and re-emits them as events.
+   */
+  private async recoverMissedMessages(): Promise<void> {
+    if (!this.lastProcessedPostId) {
+      return;
+    }
+
+    log.info(`Recovering missed messages after post ${this.lastProcessedPostId}...`);
+
+    const missedPosts = await this.getChannelPostsAfter(this.lastProcessedPostId);
+
+    if (missedPosts.length === 0) {
+      log.info('No missed messages to recover');
+      return;
+    }
+
+    log.info(`Recovered ${missedPosts.length} missed message(s)`);
+
+    // Re-emit each missed post as if it just arrived
+    for (const post of missedPosts) {
+      // Update lastProcessedPostId as we process each post
+      this.lastProcessedPostId = post.id;
+
+      const user = await this.getUser(post.userId);
+      this.emit('message', post, user);
+
+      // Also emit channel_post for top-level posts (not thread replies)
+      if (!post.rootId) {
+        this.emit('channel_post', post, user);
+      }
     }
   }
 
