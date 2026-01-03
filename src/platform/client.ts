@@ -16,7 +16,10 @@ export interface PlatformClientEvents {
   disconnected: () => void;
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
+  /** Emitted when a reaction is added */
   reaction: (reaction: PlatformReaction, user: PlatformUser | null) => void;
+  /** Emitted when a reaction is removed */
+  reaction_removed: (reaction: PlatformReaction, user: PlatformUser | null) => void;
   /** Emitted when someone posts at channel level (not in a thread) */
   channel_post: (post: PlatformPost, user: PlatformUser | null) => void;
 }
