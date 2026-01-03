@@ -64,6 +64,8 @@ export interface PersistedSession {
   pullRequestUrl?: string;                       // Full URL to PR (GitHub, GitLab, Bitbucket, Azure DevOps, etc.)
   // Message counter
   messageCount?: number;                         // Number of user messages sent to Claude
+  // History retention (soft delete)
+  cleanedAt?: string;                            // ISO date when session was soft-deleted (kept for history)
 }
 
 /**
@@ -133,13 +135,16 @@ export class SessionStore {
         return sessions;
       }
 
-      // Load sessions with composite sessionId as key
+      // Load active sessions only (exclude soft-deleted)
       for (const session of Object.values(data.sessions)) {
+        // Skip soft-deleted sessions (they're kept for history only)
+        if (session.cleanedAt) continue;
+
         const sessionId = `${session.platformId}:${session.threadId}`;
         sessions.set(sessionId, session);
       }
 
-      log.debug(`Loaded ${sessions.size} session(s)`);
+      log.debug(`Loaded ${sessions.size} active session(s)`);
     } catch (err) {
       log.error(`Failed to load sessions: ${err}`);
     }
@@ -163,7 +168,7 @@ export class SessionStore {
   }
 
   /**
-   * Remove a session
+   * Remove a session permanently
    * @param sessionId - Composite key "platformId:threadId"
    */
   remove(sessionId: string): void {
@@ -178,8 +183,24 @@ export class SessionStore {
   }
 
   /**
-   * Remove sessions older than maxAgeMs
-   * @returns Array of sessionIds that were removed
+   * Soft-delete a session (mark as cleaned but keep for history)
+   * @param sessionId - Composite key "platformId:threadId"
+   */
+  softDelete(sessionId: string): void {
+    const data = this.loadRaw();
+    if (data.sessions[sessionId]) {
+      data.sessions[sessionId].cleanedAt = new Date().toISOString();
+      this.writeAtomic(data);
+
+      const shortId = sessionId.substring(0, 20);
+      log.debug(`Soft-deleted session ${shortId}...`);
+    }
+  }
+
+  /**
+   * Soft-delete sessions older than maxAgeMs (keeps them for history display)
+   * Only affects active sessions (not already soft-deleted)
+   * @returns Array of sessionIds that were soft-deleted
    */
   cleanStale(maxAgeMs: number): string[] {
     const data = this.loadRaw();
@@ -187,19 +208,73 @@ export class SessionStore {
     const staleIds: string[] = [];
 
     for (const [sessionId, session] of Object.entries(data.sessions)) {
+      // Skip already soft-deleted sessions
+      if (session.cleanedAt) continue;
+
       const lastActivity = new Date(session.lastActivityAt).getTime();
       if (now - lastActivity > maxAgeMs) {
         staleIds.push(sessionId);
-        delete data.sessions[sessionId];
+        session.cleanedAt = new Date().toISOString();
       }
     }
 
     if (staleIds.length > 0) {
       this.writeAtomic(data);
-      log.debug(`Cleaned ${staleIds.length} stale session(s)`);
+      log.debug(`Soft-deleted ${staleIds.length} stale session(s)`);
     }
 
     return staleIds;
+  }
+
+  /**
+   * Permanently remove soft-deleted sessions older than historyRetentionMs
+   * @param historyRetentionMs - How long to keep soft-deleted sessions (default: 3 days)
+   * @returns Number of sessions permanently removed
+   */
+  cleanHistory(historyRetentionMs: number = 3 * 24 * 60 * 60 * 1000): number {
+    const data = this.loadRaw();
+    const now = Date.now();
+    let removedCount = 0;
+
+    for (const [sessionId, session] of Object.entries(data.sessions)) {
+      if (!session.cleanedAt) continue;
+
+      const cleanedTime = new Date(session.cleanedAt).getTime();
+      if (now - cleanedTime > historyRetentionMs) {
+        delete data.sessions[sessionId];
+        removedCount++;
+      }
+    }
+
+    if (removedCount > 0) {
+      this.writeAtomic(data);
+      log.debug(`Permanently removed ${removedCount} old session(s) from history`);
+    }
+
+    return removedCount;
+  }
+
+  /**
+   * Get all soft-deleted sessions for a platform (for history display)
+   * @param platformId - Platform instance ID
+   * @returns Array of soft-deleted sessions, sorted by cleanedAt descending
+   */
+  getHistory(platformId: string): PersistedSession[] {
+    const data = this.loadRaw();
+    const historySessions: PersistedSession[] = [];
+
+    for (const session of Object.values(data.sessions)) {
+      if (session.platformId === platformId && session.cleanedAt) {
+        historySessions.push(session);
+      }
+    }
+
+    // Sort by cleanedAt descending (most recent first)
+    return historySessions.sort((a, b) => {
+      const aTime = new Date(a.cleanedAt!).getTime();
+      const bTime = new Date(b.cleanedAt!).getTime();
+      return bTime - aTime;
+    });
   }
 
   /**

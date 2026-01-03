@@ -164,8 +164,28 @@ describe('SessionStore', () => {
     });
   });
 
+  describe('softDelete', () => {
+    it('marks a session as cleaned but keeps it', () => {
+      const session = createTestSession();
+      const sessionId = `${session.platformId}:${session.threadId}`;
+
+      store.save(sessionId, session);
+      expect(store.load().size).toBe(1);
+
+      store.softDelete(sessionId);
+
+      // Should not appear in load() (active sessions)
+      expect(store.load().size).toBe(0);
+
+      // But should appear in getHistory()
+      const history = store.getHistory('test-platform');
+      expect(history.length).toBe(1);
+      expect(history[0].cleanedAt).toBeDefined();
+    });
+  });
+
   describe('cleanStale', () => {
-    it('removes sessions older than maxAgeMs', () => {
+    it('soft-deletes sessions older than maxAgeMs', () => {
       const oldSession = createTestSession({
         threadId: 'old-thread',
         lastActivityAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
@@ -182,6 +202,126 @@ describe('SessionStore', () => {
 
       expect(staleIds).toContain('test-platform:old-thread');
       expect(staleIds).not.toContain('test-platform:new-thread');
+
+      // Only new session should be in active sessions
+      expect(store.load().size).toBe(1);
+
+      // Old session should be in history
+      const history = store.getHistory('test-platform');
+      expect(history.length).toBe(1);
+      expect(history[0].threadId).toBe('old-thread');
+    });
+
+    it('skips already soft-deleted sessions', () => {
+      const session = createTestSession({
+        threadId: 'old-thread',
+        lastActivityAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      });
+
+      store.save('test-platform:old-thread', session);
+      store.softDelete('test-platform:old-thread');
+
+      // Should not soft-delete again
+      const staleIds = store.cleanStale(60 * 60 * 1000);
+      expect(staleIds.length).toBe(0);
+    });
+  });
+
+  describe('getHistory', () => {
+    it('returns soft-deleted sessions for a platform', () => {
+      const session1 = createTestSession({ threadId: 'thread-1' });
+      const session2 = createTestSession({ threadId: 'thread-2' });
+
+      store.save('test-platform:thread-1', session1);
+      store.save('test-platform:thread-2', session2);
+
+      store.softDelete('test-platform:thread-1');
+
+      const history = store.getHistory('test-platform');
+      expect(history.length).toBe(1);
+      expect(history[0].threadId).toBe('thread-1');
+    });
+
+    it('sorts by cleanedAt descending (most recent first)', async () => {
+      const session1 = createTestSession({ threadId: 'thread-1' });
+      const session2 = createTestSession({ threadId: 'thread-2' });
+
+      store.save('test-platform:thread-1', session1);
+      store.save('test-platform:thread-2', session2);
+
+      store.softDelete('test-platform:thread-1');
+      // Small delay to ensure different cleanedAt timestamps
+      await new Promise(resolve => setTimeout(resolve, 10));
+      store.softDelete('test-platform:thread-2');
+
+      const history = store.getHistory('test-platform');
+      expect(history.length).toBe(2);
+      expect(history[0].threadId).toBe('thread-2'); // Most recently cleaned
+      expect(history[1].threadId).toBe('thread-1');
+    });
+
+    it('only returns sessions for the specified platform', () => {
+      const session1 = createTestSession({ platformId: 'platform-a', threadId: 'thread-1' });
+      const session2 = createTestSession({ platformId: 'platform-b', threadId: 'thread-2' });
+
+      store.save('platform-a:thread-1', session1);
+      store.save('platform-b:thread-2', session2);
+
+      store.softDelete('platform-a:thread-1');
+      store.softDelete('platform-b:thread-2');
+
+      const historyA = store.getHistory('platform-a');
+      expect(historyA.length).toBe(1);
+      expect(historyA[0].threadId).toBe('thread-1');
+
+      const historyB = store.getHistory('platform-b');
+      expect(historyB.length).toBe(1);
+      expect(historyB[0].threadId).toBe('thread-2');
+    });
+  });
+
+  describe('cleanHistory', () => {
+    it('permanently removes soft-deleted sessions older than retention period', () => {
+      const oldTime = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString(); // 4 days ago
+      const session = createTestSession({
+        threadId: 'old-thread',
+        cleanedAt: oldTime,
+      });
+
+      store.save('test-platform:old-thread', session);
+
+      // Clean history with 3-day retention
+      const removedCount = store.cleanHistory(3 * 24 * 60 * 60 * 1000);
+
+      expect(removedCount).toBe(1);
+      expect(store.getHistory('test-platform').length).toBe(0);
+    });
+
+    it('keeps recent soft-deleted sessions', () => {
+      const recentTime = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+      const session = createTestSession({
+        threadId: 'recent-thread',
+        cleanedAt: recentTime,
+      });
+
+      store.save('test-platform:recent-thread', session);
+
+      // Clean history with 3-day retention
+      const removedCount = store.cleanHistory(3 * 24 * 60 * 60 * 1000);
+
+      expect(removedCount).toBe(0);
+      expect(store.getHistory('test-platform').length).toBe(1);
+    });
+
+    it('does not affect active sessions', () => {
+      const session = createTestSession({ threadId: 'active-thread' });
+
+      store.save('test-platform:active-thread', session);
+
+      // Clean history
+      const removedCount = store.cleanHistory(0); // Would remove everything if it was in history
+
+      expect(removedCount).toBe(0);
       expect(store.load().size).toBe(1);
     });
   });

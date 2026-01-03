@@ -156,7 +156,7 @@ describe('Lifecycle Module', () => {
 
       await lifecycle.killSession(session, true, ctx);
 
-      expect(ctx.ops.unpersistSession).toHaveBeenCalledWith('thread-123');
+      expect(ctx.ops.unpersistSession).toHaveBeenCalledWith('test-platform:thread-123');
     });
 
     it('preserves persistence when not unpersisting', async () => {

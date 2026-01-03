@@ -525,7 +525,8 @@ export class SessionManager {
   }
 
   private unpersistSession(sessionId: string): void {
-    this.sessionStore.remove(sessionId);
+    // Soft-delete instead of hard delete - keeps session in history for display
+    this.sessionStore.softDelete(sessionId);
   }
 
   // ---------------------------------------------------------------------------
@@ -573,7 +574,13 @@ export class SessionManager {
     // Use 2x timeout to be generous (bot might have been down for a while)
     const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
     if (staleIds.length > 0) {
-      log.info(`🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
+      log.info(`🧹 Soft-deleted ${staleIds.length} stale session(s) (kept for history)`);
+    }
+
+    // Permanently remove old history entries (older than 3 days by default)
+    const removedCount = this.sessionStore.cleanHistory();
+    if (removedCount > 0) {
+      log.info(`🗑️ Permanently removed ${removedCount} old session(s) from history`);
     }
 
     const persisted = this.sessionStore.load();

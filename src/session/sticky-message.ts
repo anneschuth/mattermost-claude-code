@@ -8,7 +8,7 @@
 
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
-import type { SessionStore } from '../persistence/session-store.js';
+import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
 import type { WorktreeMode } from '../config.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
@@ -229,6 +229,42 @@ function getSessionTopic(session: Session): string {
 }
 
 /**
+ * Get the display topic for a persisted session (history).
+ */
+function getHistorySessionTopic(session: PersistedSession): string {
+  if (session.sessionTitle) {
+    return session.sessionTitle;
+  }
+  return formatTopicFromPrompt(session.firstPrompt);
+}
+
+/**
+ * Format a history session entry for display.
+ * @param session - The soft-deleted session from history
+ * @returns Formatted line for the sticky message
+ */
+function formatHistoryEntry(session: PersistedSession): string[] {
+  const topic = getHistorySessionTopic(session);
+  const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
+  const displayName = session.startedByDisplayName || session.startedBy;
+  const cleanedAt = session.cleanedAt ? new Date(session.cleanedAt) : new Date(session.lastActivityAt);
+  const time = formatRelativeTime(cleanedAt);
+
+  // Build PR link if available
+  const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
+
+  const lines: string[] = [];
+  lines.push(`  ✓ ${threadLink} · **${displayName}**${prStr} · ${time}`);
+
+  // Add description on next line if available
+  if (session.sessionDescription) {
+    lines.push(`     _${session.sessionDescription}_`);
+  }
+
+  return lines;
+}
+
+/**
  * Build the status bar for the sticky message.
  * Shows system-level info: version, sessions, settings, battery, uptime, hostname
  */
@@ -324,17 +360,33 @@ export async function buildStickyMessage(
   // Build status bar (shown even when no sessions)
   const statusBar = await buildStatusBar(platformSessions.length, config);
 
+  // Get recent history (soft-deleted sessions)
+  const historySessions = sessionStore ? sessionStore.getHistory(platformId).slice(0, 5) : [];
+
   if (platformSessions.length === 0) {
-    return [
+    const lines = [
       '---',
       statusBar,
       '',
       '**Active Claude Threads**',
       '',
       '_No active sessions_',
-      '',
-      '_Mention me to start a session_ · `npm i -g claude-threads`',
-    ].join('\n');
+    ];
+
+    // Add history section if there are recent completed sessions
+    if (historySessions.length > 0) {
+      lines.push('');
+      lines.push(`**Recent** (${historySessions.length})`);
+      lines.push('');
+      for (const historySession of historySessions) {
+        lines.push(...formatHistoryEntry(historySession));
+      }
+    }
+
+    lines.push('');
+    lines.push('_Mention me to start a session_ · `npm i -g claude-threads`');
+
+    return lines.join('\n');
   }
 
   // Sort by start time (newest first)
@@ -379,6 +431,16 @@ export async function buildStickyMessage(
     const activeTask = getActiveTask(session);
     if (activeTask && !pendingPromptsStr) {
       lines.push(`   🔄 _${activeTask}_`);
+    }
+  }
+
+  // Add history section if there are recent completed sessions
+  if (historySessions.length > 0) {
+    lines.push('');
+    lines.push(`**Recent** (${historySessions.length})`);
+    lines.push('');
+    for (const historySession of historySessions) {
+      lines.push(...formatHistoryEntry(historySession));
     }
   }
 
