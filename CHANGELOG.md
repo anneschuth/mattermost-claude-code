@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-01-03
+
+### Fixed
+- **Detect permanent resume failures immediately** - When resuming a session fails due to Claude CLI's browser bridge temp file issue (EOPNOTSUPP/ENOENT on `claude-mcp-browser-bridge`), the session is now immediately removed from persistence instead of retrying 3 times. This prevents unnecessary retry loops for failures that will never succeed.
+
 ## [0.31.1] - 2026-01-03
 
 ### Fixed
