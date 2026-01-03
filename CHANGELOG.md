@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-01-03
+
+### Fixed
+- **Prevent infinite resume retry loop** - Sessions that crash immediately after resume (e.g., due to Claude CLI Chrome MCP issues) now track failure count and are permanently removed after 3 failed attempts, preventing infinite retry loops on bot restart.
+
+### Changed
+- **Updated README** - Comprehensive documentation update covering features from v0.8.0 to v0.31.0, including worktree support, context prompts, session history, and more.
+
 ## [0.31.0] - 2026-01-03
 
 ### Added
