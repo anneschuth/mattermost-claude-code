@@ -15,6 +15,7 @@ import { formatUptime } from '../utils/uptime.js';
 import { VERSION } from '../version.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
+import { getClaudeCliVersion } from '../claude/version-check.js';
 
 const log = createLogger('sticky');
 
@@ -274,8 +275,10 @@ async function buildStatusBar(
 ): Promise<string> {
   const items: string[] = [];
 
-  // Version
-  items.push(`\`v${VERSION}\``);
+  // Version (claude-threads + Claude CLI)
+  const claudeVersion = getClaudeCliVersion();
+  const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
+  items.push(`\`${versionStr}\``);
 
   // Session count
   items.push(`\`${sessionCount}/${config.maxSessions} sessions\``);

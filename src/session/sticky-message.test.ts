@@ -98,8 +98,8 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
 
-    // Should contain version
-    expect(result).toMatch(/`v\d+\.\d+\.\d+`/);
+    // Should contain version (with optional CLI version appended)
+    expect(result).toMatch(/`v\d+\.\d+\.\d+( · CLI \d+\.\d+\.\d+)?`/);
     // Should contain session count
     expect(result).toContain('`0/5 sessions`');
     // Should contain uptime

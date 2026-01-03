@@ -11,7 +11,8 @@ import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { printLogo } from './logo.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
-import { dim, bold, cyan } from './utils/output.js';
+import { dim, bold, cyan, yellow, red } from './utils/output.js';
+import { validateClaudeCli } from './claude/version-check.js';
 
 // Define CLI options
 program
@@ -32,6 +33,7 @@ program
   .option('--no-keep-alive', 'Disable system sleep prevention')
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
+  .option('--skip-version-check', 'Skip Claude CLI version compatibility check')
   .parse();
 
 const opts = program.opts();
@@ -103,12 +105,27 @@ async function main() {
   // Print ASCII logo
   printLogo();
 
+  // Check Claude CLI version
+  const claudeValidation = validateClaudeCli();
+
   // Startup info
   console.log(dim(`  v${VERSION}`));
   console.log('');
   console.log(`  📂 ${cyan(workingDir)}`);
   console.log(`  💬 ${cyan('@' + platformConfig.botName)}`);
   console.log(`  🌐 ${dim(platformConfig.url)}`);
+
+  // Display Claude CLI version
+  if (claudeValidation.installed) {
+    if (claudeValidation.compatible) {
+      console.log(`  🤖 ${dim(`Claude CLI ${claudeValidation.version}`)}`);
+    } else {
+      console.log(`  🤖 ${yellow(`Claude CLI ${claudeValidation.version} (incompatible)`)}`);
+    }
+  } else {
+    console.log(`  🤖 ${red('Claude CLI not found')}`);
+  }
+
   if (platformConfig.skipPermissions) {
     console.log(`  ⚠️ ${dim('Permissions disabled')}`);
   } else {
@@ -121,6 +138,15 @@ async function main() {
     console.log(`  ☕ ${dim('Keep-alive enabled')}`);
   }
   console.log('');
+
+  // Fail on incompatible version unless --skip-version-check is set
+  if (!claudeValidation.compatible && !opts.skipVersionCheck) {
+    console.error(red(`  ❌ ${claudeValidation.message}`));
+    console.error('');
+    console.error(dim(`  Use --skip-version-check to bypass this check (not recommended)`));
+    console.error('');
+    process.exit(1);
+  }
 
   const mattermost = new MattermostClient(platformConfig);
   const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);

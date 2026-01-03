@@ -148,6 +148,7 @@ The session management is split into focused modules for maintainability:
 |------|---------|
 | `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
 | `src/claude/types.ts` | TypeScript types for Claude stream-json events |
+| `src/claude/version-check.ts` | Claude CLI version validation and compatibility check |
 
 ### Platform Layer
 | File | Purpose |
@@ -216,6 +217,28 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | Set `1` for debug logging |
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
+
+### Claude CLI Version Requirements
+
+claude-threads requires a compatible version of the Claude CLI (`@anthropic-ai/claude-code`).
+
+**Compatible versions:** `>=2.0.74 <=2.0.76`
+
+The version is checked at startup. If an incompatible version is detected:
+- The bot will display an error message and exit
+- Use `--skip-version-check` to bypass (not recommended)
+
+To install a specific compatible version:
+```bash
+npm install -g @anthropic-ai/claude-code@2.0.76
+```
+
+The Claude CLI version is displayed:
+- At bot startup in the terminal
+- In the sticky channel message status bar
+- In each session's header table
+
+**Updating the version range:** Edit `CLAUDE_CLI_VERSION_RANGE` in `src/claude/version-check.ts` when testing with new Claude CLI versions.
 
 ## Development Commands
 

@@ -28,6 +28,7 @@ import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecur
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
+import { getClaudeCliVersion } from '../claude/version-check.js';
 
 const log = createLogger('commands');
 
@@ -522,6 +523,12 @@ export async function updateSessionHeader(
 
   if (otherParticipants) {
     rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
+  }
+
+  // Show Claude CLI version
+  const claudeVersion = getClaudeCliVersion();
+  if (claudeVersion) {
+    rows.push(`| 🤖 **Claude CLI** | \`${claudeVersion}\` |`);
   }
 
   rows.push(`| 🆔 **Session ID** | \`${session.claudeSessionId.substring(0, 8)}\` |`);
