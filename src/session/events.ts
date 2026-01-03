@@ -304,9 +304,28 @@ function formatEvent(
 
       return null;
     }
-    case 'system':
+    case 'system': {
       if (e.subtype === 'error') return `❌ ${e.error}`;
+
+      // Handle compaction status events
+      if (e.subtype === 'status' && e.status === 'compacting') {
+        return `🗜️ **Compacting context...** *(freeing up memory)*`;
+      }
+
+      // Handle compact_boundary event - marks when compaction is complete
+      if (e.subtype === 'compact_boundary') {
+        const metadata = e.compact_metadata as { trigger?: string; pre_tokens?: number } | undefined;
+        const trigger = metadata?.trigger || 'auto';
+        const preTokens = metadata?.pre_tokens;
+        let info = trigger === 'manual' ? 'manual' : 'auto';
+        if (preTokens && preTokens > 0) {
+          info += `, ${Math.round(preTokens / 1000)}k tokens`;
+        }
+        return `✅ **Context compacted** *(${info})*`;
+      }
+
       return null;
+    }
     case 'user': {
       // Handle local command output (e.g., /context, /cost responses)
       const msg = e.message as { content?: string };

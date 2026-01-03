@@ -530,3 +530,116 @@ describe('handleEvent with result event (usage stats)', () => {
     }
   });
 });
+
+describe('handleEvent with compaction events', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let ctx: SessionContext;
+  let appendedContent: string[];
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createSessionContext();
+    appendedContent = [];
+    ctx.ops.appendContent = mock((_, text: string) => {
+      appendedContent.push(text);
+    });
+  });
+
+  test('displays compacting status when compaction starts', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'status',
+      status: 'compacting',
+      session_id: 'test-session',
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('🗜️');
+    expect(appendedContent[0]).toContain('Compacting context');
+  });
+
+  test('displays compact_boundary when compaction completes (manual)', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'compact_boundary',
+      session_id: 'test-session',
+      compact_metadata: {
+        trigger: 'manual',
+        pre_tokens: 0,
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('✅');
+    expect(appendedContent[0]).toContain('Context compacted');
+    expect(appendedContent[0]).toContain('manual');
+  });
+
+  test('displays compact_boundary when compaction completes (auto)', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'compact_boundary',
+      session_id: 'test-session',
+      compact_metadata: {
+        trigger: 'auto',
+        pre_tokens: 150000,
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('✅');
+    expect(appendedContent[0]).toContain('Context compacted');
+    expect(appendedContent[0]).toContain('auto');
+    expect(appendedContent[0]).toContain('150k tokens');
+  });
+
+  test('handles compact_boundary without metadata', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'compact_boundary',
+      session_id: 'test-session',
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('✅');
+    expect(appendedContent[0]).toContain('Context compacted');
+    expect(appendedContent[0]).toContain('auto'); // Default to 'auto' when no trigger specified
+  });
+
+  test('does not display anything for status=null event', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'status',
+      status: null,
+      session_id: 'test-session',
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(0);
+  });
+
+  test('continues to display errors correctly', () => {
+    const event = {
+      type: 'system' as const,
+      subtype: 'error',
+      error: 'Something went wrong',
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('❌');
+    expect(appendedContent[0]).toContain('Something went wrong');
+  });
+});
