@@ -30,9 +30,10 @@ function padComponent(name: string): string {
 }
 
 export function LogPanel({ logs, maxLines = 10 }: LogPanelProps) {
-  // Filter out debug logs and show only the last N
+  // Filter out debug logs unless DEBUG mode is enabled
+  const isDebug = process.env.DEBUG === '1';
   const displayLogs = logs
-    .filter(log => log.level !== 'debug')
+    .filter(log => isDebug || log.level !== 'debug')
     .slice(-maxLines);
 
   if (displayLogs.length === 0) {
