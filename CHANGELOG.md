@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-01-04
+
+### Fixed
+- **Recent threads timestamp** - Fixed "just now" showing incorrectly for recent threads. Now displays when the user last worked on the session (`lastActivityAt`) instead of the internal cleanup timestamp (`cleanedAt`).
+
+### Changed
+- **Consolidated time formatting** - Unified duplicate `formatRelativeTime` functions into `utils/format.ts`. Added compact `formatRelativeTimeShort()` for sticky message display (e.g., "5m ago", "2h ago").
+
 ## [0.33.0] - 2026-01-03
 
 ### Added
