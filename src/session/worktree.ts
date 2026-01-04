@@ -26,6 +26,11 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('worktree');
 
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
+
 /**
  * Check if we should prompt the user to create a worktree.
  * Returns the reason for prompting, or null if we shouldn't prompt.
@@ -128,6 +133,7 @@ export async function handleWorktreeBranchResponse(
   // Validate branch name
   if (!isValidBranchName(branchName)) {
     await postError(session, `Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`);
+    sessionLog(session).warn(`🌿 Invalid branch name: ${branchName}`);
     return true; // We handled it, but need another response
   }
 
@@ -206,6 +212,7 @@ export async function createAndSwitchToWorktree(
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to manage worktrees`);
     return;
   }
 
@@ -213,6 +220,7 @@ export async function createAndSwitchToWorktree(
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
     await postError(session, `Current directory is not a git repository`);
+    sessionLog(session).warn(`🌿 Not a git repository: ${session.workingDir}`);
     return;
   }
 
@@ -248,8 +256,7 @@ export async function createAndSwitchToWorktree(
     return;
   }
 
-  const shortId = session.threadId.substring(0, 8);
-  log.info(`🌿 Session (${shortId}…) creating worktree for branch ${branch}`);
+  sessionLog(session).info(`🌿 Creating worktree for branch ${branch}`);
 
   // Generate worktree path
   const worktreePath = getWorktreeDir(repoRoot, branch);
@@ -315,6 +322,7 @@ export async function createAndSwitchToWorktree(
         chrome: options.chromeEnabled,
         platformConfig: session.platform.getMcpConfig(),
         appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
+        logSessionId: session.sessionId,  // Route logs to session panel
       };
       session.claude = new ClaudeCli(cliOptions);
 
@@ -353,7 +361,7 @@ export async function createAndSwitchToWorktree(
       session.worktreeResponsePostId = undefined;
     }
 
-    log.info(`🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
+    sessionLog(session).info(`🌿 Switched to worktree ${branch} at ${shortWorktreePath}`);
   } catch (err) {
     await logAndNotify(err, { action: 'Create worktree', session });
   }
@@ -371,6 +379,7 @@ export async function switchToWorktree(
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to switch worktree`);
     return;
   }
 
@@ -387,6 +396,7 @@ export async function switchToWorktree(
 
   if (!target) {
     await postError(session, `Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`);
+    sessionLog(session).warn(`🌿 Worktree not found: ${branchOrPath}`);
     return;
   }
 
@@ -409,6 +419,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
     await postError(session, `Current directory is not a git repository`);
+    sessionLog(session).warn(`🌿 Not a git repository: ${session.workingDir}`);
     return;
   }
 
@@ -418,6 +429,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
 
   if (worktrees.length === 0) {
     await postInfo(session, `No worktrees found for this repository`);
+    sessionLog(session).debug(`🌿 No worktrees found`);
     return;
   }
 
@@ -446,6 +458,7 @@ export async function removeWorktreeCommand(
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to remove worktree`);
     return;
   }
 
@@ -462,18 +475,21 @@ export async function removeWorktreeCommand(
 
   if (!target) {
     await postError(session, `Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`);
+    sessionLog(session).warn(`🌿 Worktree not found: ${branchOrPath}`);
     return;
   }
 
   // Can't remove the main repository
   if (target.isMain) {
     await postError(session, `Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`);
+    sessionLog(session).warn(`🌿 Cannot remove main repository`);
     return;
   }
 
   // Can't remove the current working directory
   if (session.workingDir === target.path) {
     await postError(session, `Cannot remove the current working directory. Switch to another worktree first.`);
+    sessionLog(session).warn(`🌿 Cannot remove current directory`);
     return;
   }
 
@@ -483,7 +499,7 @@ export async function removeWorktreeCommand(
     const shortPath = target.path.replace(process.env.HOME || '', '~');
     await postSuccess(session, `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
 
-    log.info(`🗑️ Removed worktree ${target.branch} at ${shortPath}`);
+    sessionLog(session).info(`🗑️ Removed worktree ${target.branch} at ${shortPath}`);
   } catch (err) {
     await logAndNotify(err, { action: 'Remove worktree', session });
   }
@@ -500,6 +516,7 @@ export async function disableWorktreePrompt(
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to disable worktree prompts`);
     return;
   }
 
@@ -507,4 +524,5 @@ export async function disableWorktreePrompt(
   persistSession(session);
 
   await postSuccess(session, `Worktree prompts disabled for this session`);
+  sessionLog(session).info(`🌿 Worktree prompts disabled`);
 }

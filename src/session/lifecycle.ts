@@ -5,6 +5,7 @@
  */
 
 import type { Session } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -20,6 +21,17 @@ import { postError, postInfo, postResume, postWarning, postTimeout } from './pos
 import type { SessionContext } from './context.js';
 
 const log = createLogger('lifecycle');
+
+/**
+ * Get a session-scoped logger for session events.
+ * Uses session ID if available, otherwise falls back to global logger.
+ */
+function sessionLog(session: Session | null | undefined) {
+  if (session?.sessionId) {
+    return log.forSession(session.sessionId);
+  }
+  return log;
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers for DRY code
@@ -242,6 +254,7 @@ export async function startSession(
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: CHAT_PLATFORM_PROMPT,
+    logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -285,13 +298,15 @@ export async function startSession(
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
+    isProcessing: true,  // Starts as true since we're sending initial prompt
     statusBarTimer: null,  // Will be started after first result event
   };
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
   ctx.ops.registerPost(post.id, actualThreadId);
-  log.info(`▶ Session #${ctx.state.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
+  ctx.ops.emitSessionAdd(session);
+  sessionLog(session).info(`▶ Session started by @${username}`);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -314,6 +329,7 @@ export async function startSession(
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
     ctx.ops.stopTyping(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     await ctx.ops.updateStickyMessage();
     return;
@@ -435,6 +451,7 @@ export async function resumeSession(
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: needsTitlePrompt ? CHAT_PLATFORM_PROMPT : undefined,
+    logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -487,6 +504,7 @@ export async function resumeSession(
     sessionDescription: state.sessionDescription,
     pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
+    isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
   };
@@ -500,6 +518,7 @@ export async function resumeSession(
   if (state.tasksPostId) {
     ctx.ops.registerPost(state.tasksPostId, state.threadId);
   }
+  ctx.ops.emitSessionAdd(session);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -510,7 +529,7 @@ export async function resumeSession(
 
   try {
     claude.start();
-    log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
+    sessionLog(session).info(`🔄 Session resumed (@${state.startedBy})`);
 
     // Post or update resume message
     // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
@@ -537,6 +556,7 @@ export async function resumeSession(
     ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
+    ctx.ops.emitSessionRemove(sessionId);
     mutableSessions(ctx).delete(sessionId);
     ctx.state.sessionStore.remove(sessionId);
 
@@ -594,6 +614,10 @@ export async function sendFollowUp(
   const messageToSend = typeof content === 'string'
     ? maybeInjectMetadataReminder(content, session)
     : content;
+
+  // Mark as processing and update UI
+  session.isProcessing = true;
+  ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
 
   session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();
@@ -659,7 +683,7 @@ export async function handleExit(
   const session = mutableSessions(ctx).get(sessionId);
   const shortId = sessionId.substring(0, 8);
 
-  log.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.state.isShuttingDown}`);
+  sessionLog(session).debug(`handleExit called code=${code} isShuttingDown=${ctx.state.isShuttingDown}`);
 
   if (!session) {
     log.debug(`Session ${shortId}... not found (already cleaned up)`);
@@ -668,16 +692,17 @@ export async function handleExit(
 
   // If we're intentionally restarting (e.g., !cd), don't clean up
   if (session.isRestarting) {
-    log.debug(`Session ${shortId}... restarting, skipping cleanup`);
+    sessionLog(session).debug(`Restarting, skipping cleanup`);
     session.isRestarting = false;
     return;
   }
 
   // If bot is shutting down, preserve persistence
   if (ctx.state.isShuttingDown) {
-    log.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
+    sessionLog(session).debug(`Bot shutting down, preserving persistence`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
@@ -686,13 +711,14 @@ export async function handleExit(
 
   // If session was interrupted, preserve for resume (only if Claude has responded)
   if (session.wasInterrupted) {
-    log.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
+    sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
     // Only persist if Claude actually responded (otherwise there's nothing to resume)
     if (session.hasClaudeResponded) {
       ctx.ops.persistSession(session);
     }
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
     // Notify keep-alive that a session ended
@@ -705,7 +731,7 @@ export async function handleExit(
       () => postInfo(session, message),
       { action: 'Post session pause notification', session }
     );
-    log.info(`Session paused (${shortId}…) — ${ctx.state.sessions.size} active`);
+    sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
     return;
@@ -713,9 +739,10 @@ export async function handleExit(
 
   // If session exits before Claude responded, notify user (no point trying to resume)
   if (!session.hasClaudeResponded && !session.isResumed) {
-    log.debug(`Session ${shortId}... exited before Claude responded, not persisting`);
+    sessionLog(session).debug(`Exited before Claude responded, not persisting`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
     keepAlive.sessionEnded();
@@ -724,7 +751,7 @@ export async function handleExit(
       () => postWarning(session, `**Session ended** before Claude could respond (exit code ${code}). Please start a new session.`),
       { action: 'Post early exit notification', session }
     );
-    log.info(`Session ended early (${shortId}…) — ${ctx.state.sessions.size} active`);
+    sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);
     await ctx.ops.updateStickyMessage();
     return;
   }
@@ -738,16 +765,17 @@ export async function handleExit(
     const isPermanent = session.claude.isPermanentFailure();
     const permanentReason = session.claude.getPermanentFailureReason();
 
-    log.debug(`Resumed session ${shortId}... failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
+    sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
 
     // Immediately give up on permanent failures
     if (isPermanent) {
-      log.warn(`Session ${shortId}... detected permanent failure, removing from persistence: ${permanentReason}`);
+      sessionLog(session).warn(`Detected permanent failure, removing from persistence: ${permanentReason}`);
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
         () => postError(session, `**Session cannot be resumed** — ${permanentReason}\n\nPlease start a new session.`),
@@ -759,7 +787,7 @@ export async function handleExit(
 
     if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence
-      log.warn(`Session ${shortId}... exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
+      sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
         () => postError(session, `**Session permanently failed** after ${MAX_RESUME_FAILURES} resume attempts (exit code ${code}). Session data has been removed. Please start a new session.`),
@@ -780,7 +808,7 @@ export async function handleExit(
   }
 
   // Normal exit cleanup
-  log.debug(`Session ${shortId}... normal exit, cleaning up`);
+  sessionLog(session).debug(`Normal exit, cleaning up`);
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
@@ -791,6 +819,7 @@ export async function handleExit(
   }
 
   // Clean up session from maps
+  ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
 
@@ -801,10 +830,10 @@ export async function handleExit(
   if (code === 0 || code === null) {
     ctx.ops.unpersistSession(session.sessionId);
   } else {
-    log.debug(`Session ${shortId}... non-zero exit, preserving for potential retry`);
+    sessionLog(session).debug(`Non-zero exit, preserving for potential retry`);
   }
 
-  log.info(`■ Session ended (${shortId}…) — ${ctx.state.sessions.size} active`);
+  sessionLog(session).info(`■ Session ended`);
 
   // Update sticky channel message after session end
   await ctx.ops.updateStickyMessage();
@@ -818,8 +847,6 @@ export async function killSession(
   unpersist: boolean,
   ctx: SessionContext
 ): Promise<void> {
-  const shortId = session.threadId.substring(0, 8);
-
   // Set restarting flag to prevent handleExit from also unpersisting
   if (!unpersist) {
     session.isRestarting = true;
@@ -829,6 +856,7 @@ export async function killSession(
   session.claude.kill();
 
   // Clean up session from maps
+  ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
 
@@ -840,7 +868,7 @@ export async function killSession(
     ctx.ops.unpersistSession(session.sessionId);
   }
 
-  log.info(`✖ Session killed (${shortId}…) — ${ctx.state.sessions.size} active`);
+  sessionLog(session).info(`✖ Session killed`);
 
   // Update sticky channel message after session kill
   await ctx.ops.updateStickyMessage();
@@ -889,11 +917,10 @@ export async function cleanupIdleSessions(
 
   for (const [_sessionId, session] of ctx.state.sessions) {
     const idleMs = now - session.lastActivityAt.getTime();
-    const shortId = session.threadId.substring(0, 8);
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      log.info(`⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
+      sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
 
       const timeoutMessage = `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
@@ -940,7 +967,7 @@ export async function cleanupIdleSessions(
         ctx.ops.registerPost(warningPost.id, session.threadId);
       }
       session.timeoutWarningPosted = true;
-      log.debug(`⏰ Session (${shortId}…) idle warning posted`);
+      sessionLog(session).debug(`⏰ Idle warning posted`);
     }
   }
 }

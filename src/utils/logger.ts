@@ -6,6 +6,7 @@
  * - DEBUG environment variable check
  * - stdout vs stderr routing option
  * - Pre-configured loggers for common components
+ * - Custom log handler for Ink UI integration
  *
  * Benefits:
  * - DRY: Single implementation for all logging
@@ -21,12 +22,35 @@
 export interface Logger {
   /** Log a debug message (only when DEBUG=1) */
   debug: (msg: string, ...args: unknown[]) => void;
+  /** Log a debug message with JSON data, truncated to avoid line-wrapping (only when DEBUG=1) */
+  debugJson: (label: string, data: unknown, maxLen?: number) => void;
   /** Log an info message (always shown) */
   info: (msg: string, ...args: unknown[]) => void;
   /** Log a warning message (always shown) */
   warn: (msg: string, ...args: unknown[]) => void;
   /** Log an error message (always shown, to stderr) */
   error: (msg: string, err?: Error) => void;
+  /** Create a session-scoped logger that attaches sessionId to all messages */
+  forSession: (sessionId: string) => Logger;
+}
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+export interface LogHandler {
+  (level: LogLevel, component: string, message: string, sessionId?: string): void;
+}
+
+// Global log handler - when set, logs go through this instead of console
+let globalLogHandler: LogHandler | null = null;
+
+/**
+ * Set a global log handler for UI integration.
+ * When set, all log output is routed through this handler instead of console.
+ *
+ * @param handler - Function to handle log messages, or null to use console
+ */
+export function setLogHandler(handler: LogHandler | null): void {
+  globalLogHandler = handler;
 }
 
 // =============================================================================
@@ -38,6 +62,7 @@ export interface Logger {
  *
  * @param component - Component name (e.g., 'lifecycle', 'events', 'mcp')
  * @param useStderr - If true, use stderr for all output (default: false)
+ * @param sessionId - Optional session ID to attach to all log messages
  * @returns Logger object with debug, info, warn, and error methods
  *
  * @example
@@ -45,42 +70,75 @@ export interface Logger {
  * log.info('Session started');
  * log.debug('Processing event'); // Only shown when DEBUG=1
  * log.error('Something failed', error);
+ *
+ * // Create session-scoped logger
+ * const sessionLog = log.forSession('session-123');
+ * sessionLog.info('Processing'); // Will include sessionId for UI routing
  */
-export function createLogger(component: string, useStderr = false): Logger {
+export function createLogger(component: string, useStderr = false, sessionId?: string): Logger {
   const isDebug = () => process.env.DEBUG === '1';
-  const log = useStderr ? console.error : console.log;
-  const prefix = `  [${component}]`;
+  const consoleLog = useStderr ? console.error : console.log;
+
+  // Helper to format message with args
+  const formatMessage = (msg: string, args: unknown[]): string => {
+    if (args.length === 0) return msg;
+    return `${msg} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
+  };
+
+  // Max length for JSON in debugJson (leaves room for component prefix)
+  const DEFAULT_JSON_MAX_LEN = 60;
 
   return {
     debug: (msg: string, ...args: unknown[]) => {
       if (isDebug()) {
-        if (args.length > 0) {
-          log(`${prefix} ${msg}`, ...args);
+        const fullMsg = formatMessage(msg, args);
+        if (globalLogHandler) {
+          globalLogHandler('debug', component, fullMsg, sessionId);
         } else {
-          log(`${prefix} ${msg}`);
+          consoleLog(`  [${component}] ${fullMsg}`);
+        }
+      }
+    },
+    debugJson: (label: string, data: unknown, maxLen = DEFAULT_JSON_MAX_LEN) => {
+      if (isDebug()) {
+        const json = JSON.stringify(data);
+        const truncated = json.length > maxLen ? `${json.substring(0, maxLen)}…` : json;
+        const fullMsg = `${label}: ${truncated}`;
+        if (globalLogHandler) {
+          globalLogHandler('debug', component, fullMsg, sessionId);
+        } else {
+          consoleLog(`  [${component}] ${fullMsg}`);
         }
       }
     },
     info: (msg: string, ...args: unknown[]) => {
-      if (args.length > 0) {
-        log(`${prefix} ${msg}`, ...args);
+      const fullMsg = formatMessage(msg, args);
+      if (globalLogHandler) {
+        globalLogHandler('info', component, fullMsg, sessionId);
       } else {
-        log(`${prefix} ${msg}`);
+        consoleLog(`  [${component}] ${fullMsg}`);
       }
     },
     warn: (msg: string, ...args: unknown[]) => {
-      if (args.length > 0) {
-        console.warn(`${prefix} ⚠️ ${msg}`, ...args);
+      const fullMsg = formatMessage(msg, args);
+      if (globalLogHandler) {
+        globalLogHandler('warn', component, fullMsg, sessionId);
       } else {
-        console.warn(`${prefix} ⚠️ ${msg}`);
+        console.warn(`  [${component}] ⚠️ ${fullMsg}`);
       }
     },
     error: (msg: string, err?: Error) => {
-      console.error(`${prefix} ❌ ${msg}`);
-      if (err && isDebug()) {
-        console.error(err);
+      const fullMsg = err && isDebug() ? `${msg}\n${err.stack || err.message}` : msg;
+      if (globalLogHandler) {
+        globalLogHandler('error', component, fullMsg, sessionId);
+      } else {
+        console.error(`  [${component}] ❌ ${msg}`);
+        if (err && isDebug()) {
+          console.error(err);
+        }
       }
     },
+    forSession: (sid: string) => createLogger(component, useStderr, sid),
   };
 }
 

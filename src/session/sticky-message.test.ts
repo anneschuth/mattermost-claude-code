@@ -177,7 +177,8 @@ describe('buildStickyMessage', () => {
 
     expect(result).toContain('Active Claude Threads');
     expect(result).toContain('(1)');
-    expect(result).toContain('▸');
+    expect(result).toContain('▸'); // Active session bullet
+    expect(result).toContain('○'); // Status indicator (idle session)
     expect(result).toContain('testuser');
     expect(result).not.toContain('@testuser'); // No @ prefix
     expect(result).toContain('Help me debug this function');

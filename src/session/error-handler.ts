@@ -121,7 +121,7 @@ export async function handleError(
 
   // Log additional details in debug mode
   if (context.details) {
-    log.debug(`Error details: ${JSON.stringify(context.details)}`);
+    log.debugJson('Error details', context.details);
   }
 
   // Notify user if requested and session available

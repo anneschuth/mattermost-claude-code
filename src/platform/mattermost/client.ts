@@ -414,7 +414,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        wsLogger.debug('WebSocket connected');
+        wsLogger.info('WebSocket connected');
         // Authenticate
         if (this.ws) {
           this.ws.send(
@@ -451,12 +451,12 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             resolve();
           }
         } catch (err) {
-          wsLogger.debug(`Failed to parse message: ${err}`);
+          wsLogger.warn(`Failed to parse message: ${err}`);
         }
       };
 
       this.ws.onclose = () => {
-        wsLogger.debug('WebSocket disconnected');
+        wsLogger.info('WebSocket disconnected');
         this.stopHeartbeat();
         this.emit('disconnected');
         // Only reconnect if this wasn't an intentional disconnect
@@ -466,7 +466,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       };
 
       this.ws.onerror = (event) => {
-        wsLogger.debug(`WebSocket error: ${event}`);
+        wsLogger.warn(`WebSocket error: ${event}`);
         this.emit('error', event);
         reject(event);
       };
@@ -502,7 +502,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           }
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse post: ${err}`);
+        wsLogger.warn(`Failed to parse post: ${err}`);
       }
       return;
     }
@@ -523,7 +523,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           this.emit('reaction', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse reaction: ${err}`);
+        wsLogger.warn(`Failed to parse reaction: ${err}`);
       }
     }
 
@@ -543,7 +543,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           this.emit('reaction_removed', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse reaction: ${err}`);
+        wsLogger.warn(`Failed to parse reaction: ${err}`);
       }
     }
   }
@@ -560,6 +560,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    this.emit('reconnecting', this.reconnectAttempts);
 
     setTimeout(() => {
       this.connect().catch((err) => {

@@ -13,6 +13,11 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('context');
 
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
+
 // Context timeout in milliseconds (30 seconds)
 export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
 
@@ -267,7 +272,6 @@ export interface ContextPromptHandler {
   startTyping: (session: Session) => void;
   persistSession: (session: Session) => void;
   injectMetadataReminder: (message: string, session: Session) => string;
-  debug: boolean;
 }
 
 /**
@@ -327,10 +331,7 @@ export async function handleContextPromptReaction(
   // Persist updated state
   ctx.persistSession(session);
 
-  if (ctx.debug) {
-    const shortId = session.threadId.substring(0, 8);
-    log.debug(`🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
-  }
+  sessionLog(session).debug(`🧵 Context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
 
   return true;
 }
@@ -370,10 +371,7 @@ export async function handleContextPromptTimeout(
   // Persist updated state
   ctx.persistSession(session);
 
-  if (ctx.debug) {
-    const shortId = session.threadId.substring(0, 8);
-    log.debug(`🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
-  }
+  sessionLog(session).debug(`🧵 Context prompt timed out, continuing without context`);
 }
 
 /**
@@ -418,10 +416,7 @@ export async function offerContextPrompt(
       ctx.startTyping(session);
     }
 
-    if (ctx.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      log.debug(`🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
-    }
+    sessionLog(session).debug(`🧵 Auto-included 1 message as context (thread starter)`);
 
     return false;
   }
@@ -438,10 +433,7 @@ export async function offerContextPrompt(
   session.pendingContextPrompt = pending;
   ctx.persistSession(session);
 
-  if (ctx.debug) {
-    const shortId = session.threadId.substring(0, 8);
-    log.debug(`🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
-  }
+  sessionLog(session).debug(`🧵 Context prompt posted (${messageCount} messages available)`);
 
   return true;
 }

@@ -20,6 +20,11 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('reactions');
 
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
+
 // ---------------------------------------------------------------------------
 // Question reaction handling
 // ---------------------------------------------------------------------------
@@ -45,7 +50,7 @@ export async function handleQuestionReaction(
 
   const selectedOption = question.options[optionIndex];
   question.answer = selectedOption.label;
-  if (ctx.config.debug) log.debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
+  sessionLog(session).debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
   await withErrorHandling(
@@ -68,7 +73,7 @@ export async function handleQuestionReaction(
       answersText += `- **${q.header}**: ${q.answer}\n`;
     }
 
-    if (ctx.config.debug) log.debug('✅ All questions answered');
+    sessionLog(session).debug('✅ All questions answered');
 
     // Clear pending questions
     session.pendingQuestionSet = null;
@@ -103,8 +108,7 @@ export async function handleApprovalReaction(
 
   const { postId } = session.pendingApproval;
   // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
-  const shortId = session.threadId.substring(0, 8);
-  log.info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
+  sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
 
   // Update the post to show the decision
   const statusMessage = isApprove
@@ -169,7 +173,7 @@ export async function handleMessageApprovalReaction(
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
     ctx.ops.startTyping(session);
-    log.info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
+    sessionLog(session).info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
   } else if (isInvite) {
     // Invite user to session
     session.sessionAllowedUsers.add(pending.fromUser);
@@ -181,14 +185,14 @@ export async function handleMessageApprovalReaction(
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
     ctx.ops.startTyping(session);
-    log.info(`👋 @${pending.fromUser} invited to session by @${approver}`);
+    sessionLog(session).info(`👋 @${pending.fromUser} invited to session by @${approver}`);
   } else if (isDeny) {
     // Deny
     await session.platform.updatePost(
       pending.postId,
       `❌ Message from @${pending.fromUser} denied by @${approver}`
     );
-    log.info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
+    sessionLog(session).info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
   }
 
   session.pendingMessageApproval = null;
@@ -207,7 +211,7 @@ export async function handleMessageApprovalReaction(
 export async function handleTaskToggleReaction(
   session: Session,
   action: 'added' | 'removed',
-  ctx: SessionContext
+  _ctx: SessionContext
 ): Promise<boolean> {
   if (!session.tasksPostId || !session.lastTasksContent) {
     return false;
@@ -224,9 +228,7 @@ export async function handleTaskToggleReaction(
 
   session.tasksMinimized = shouldMinimize;
 
-  if (ctx.config.debug) {
-    log.debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
-  }
+  sessionLog(session).debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
 
   // Compute the display message
   // Parse progress from lastTasksContent (format: "📋 **Tasks** (X/Y · Z%)")
@@ -315,7 +317,7 @@ export async function handleExistingWorktreeReaction(
     // Switch to the existing worktree
     await switchToWorktree(session.threadId, pending.worktreePath, pending.username);
 
-    log.info(`🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
+    sessionLog(session).info(`🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
   } else {
     // Skip - continue in current directory
     await session.platform.updatePost(
@@ -327,7 +329,7 @@ export async function handleExistingWorktreeReaction(
     session.pendingExistingWorktreePrompt = undefined;
     ctx.ops.persistSession(session);
 
-    log.info(`❌ @${username} skipped joining existing worktree ${pending.branch}`);
+    sessionLog(session).info(`❌ @${username} skipped joining existing worktree ${pending.branch}`);
   }
 
   return true;

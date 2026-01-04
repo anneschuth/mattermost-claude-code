@@ -8,7 +8,7 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
 } from './config/migration.js';
-import { bold, dim, green } from './utils/output.js';
+import { bold, dim, green } from './utils/colors.js';
 
 const onCancel = () => {
   console.log('');

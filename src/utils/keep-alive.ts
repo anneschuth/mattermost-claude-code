@@ -9,7 +9,9 @@
  */
 
 import { spawn, ChildProcess } from 'child_process';
-import { log, debug, error } from './output.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('keepalive');
 
 /**
  * KeepAlive manager - singleton that tracks active sessions and manages
@@ -34,7 +36,7 @@ class KeepAliveManager {
     if (!enabled && this.keepAliveProcess) {
       this.stopKeepAlive();
     }
-    debug('☕', `Keep-alive ${enabled ? 'enabled' : 'disabled'}`);
+    log.debug(`Keep-alive ${enabled ? 'enabled' : 'disabled'}`);
   }
 
   /**
@@ -57,7 +59,7 @@ class KeepAliveManager {
    */
   sessionStarted(): void {
     this.activeSessionCount++;
-    debug('☕', `Session started (${this.activeSessionCount} active)`);
+    log.debug(`Session started (${this.activeSessionCount} active)`);
 
     if (this.activeSessionCount === 1) {
       this.startKeepAlive();
@@ -72,7 +74,7 @@ class KeepAliveManager {
     if (this.activeSessionCount > 0) {
       this.activeSessionCount--;
     }
-    debug('☕', `Session ended (${this.activeSessionCount} active)`);
+    log.debug(`Session ended (${this.activeSessionCount} active)`);
 
     if (this.activeSessionCount === 0) {
       this.stopKeepAlive();
@@ -99,12 +101,12 @@ class KeepAliveManager {
    */
   private startKeepAlive(): void {
     if (!this.enabled) {
-      debug('☕', 'Keep-alive disabled, skipping');
+      log.debug('Keep-alive disabled, skipping');
       return;
     }
 
     if (this.keepAliveProcess) {
-      debug('☕', 'Keep-alive already running');
+      log.debug('Keep-alive already running');
       return;
     }
 
@@ -119,7 +121,7 @@ class KeepAliveManager {
         this.startWindowsKeepAlive();
         break;
       default:
-        log('☕', `Keep-alive not supported on ${this.platform}`);
+        log.warn(`Keep-alive not supported on ${this.platform}`);
     }
   }
 
@@ -128,7 +130,7 @@ class KeepAliveManager {
    */
   private stopKeepAlive(): void {
     if (this.keepAliveProcess) {
-      debug('☕', 'Stopping keep-alive');
+      log.debug('Stopping keep-alive');
       this.keepAliveProcess.kill();
       this.keepAliveProcess = null;
     }
@@ -149,20 +151,20 @@ class KeepAliveManager {
       });
 
       this.keepAliveProcess.on('error', (err) => {
-        error('☕', `Failed to start caffeinate: ${err.message}`);
+        log.error(`Failed to start caffeinate: ${err.message}`);
         this.keepAliveProcess = null;
       });
 
       this.keepAliveProcess.on('exit', (code) => {
         if (code !== null && code !== 0 && this.activeSessionCount > 0) {
-          debug('☕', `caffeinate exited with code ${code}`);
+          log.debug(`caffeinate exited with code ${code}`);
         }
         this.keepAliveProcess = null;
       });
 
-      log('☕', 'Sleep prevention active (caffeinate)');
+      log.info('Sleep prevention active (caffeinate)');
     } catch (err) {
-      error('☕', `Failed to start caffeinate: ${err}`);
+      log.error(`Failed to start caffeinate: ${err}`);
     }
   }
 
@@ -190,7 +192,7 @@ class KeepAliveManager {
       );
 
       this.keepAliveProcess.on('error', (err) => {
-        debug('☕', `systemd-inhibit not available: ${err.message}`);
+        log.debug(`systemd-inhibit not available: ${err.message}`);
         this.keepAliveProcess = null;
         // Try alternative method
         this.startLinuxKeepAliveFallback();
@@ -198,14 +200,14 @@ class KeepAliveManager {
 
       this.keepAliveProcess.on('exit', (code) => {
         if (code !== null && code !== 0 && this.activeSessionCount > 0) {
-          debug('☕', `systemd-inhibit exited with code ${code}`);
+          log.debug(`systemd-inhibit exited with code ${code}`);
         }
         this.keepAliveProcess = null;
       });
 
-      log('☕', 'Sleep prevention active (systemd-inhibit)');
+      log.info('Sleep prevention active (systemd-inhibit)');
     } catch (err) {
-      debug('☕', `Failed to start systemd-inhibit: ${err}`);
+      log.debug(`Failed to start systemd-inhibit: ${err}`);
       this.startLinuxKeepAliveFallback();
     }
   }
@@ -232,7 +234,7 @@ class KeepAliveManager {
       );
 
       this.keepAliveProcess.on('error', (err) => {
-        log('☕', `Linux keep-alive fallback not available: ${err.message}`);
+        log.warn(`Linux keep-alive fallback not available: ${err.message}`);
         this.keepAliveProcess = null;
       });
 
@@ -240,9 +242,9 @@ class KeepAliveManager {
         this.keepAliveProcess = null;
       });
 
-      log('☕', 'Sleep prevention active (xdg-screensaver)');
+      log.info('Sleep prevention active (xdg-screensaver)');
     } catch (err) {
-      log('☕', `Linux keep-alive not available: ${err}`);
+      log.warn(`Linux keep-alive not available: ${err}`);
     }
   }
 
@@ -281,20 +283,20 @@ class KeepAliveManager {
       );
 
       this.keepAliveProcess.on('error', (err) => {
-        log('☕', `Windows keep-alive not available: ${err.message}`);
+        log.warn(`Windows keep-alive not available: ${err.message}`);
         this.keepAliveProcess = null;
       });
 
       this.keepAliveProcess.on('exit', (code) => {
         if (code !== null && code !== 0 && this.activeSessionCount > 0) {
-          debug('☕', `PowerShell keep-alive exited with code ${code}`);
+          log.debug(`PowerShell keep-alive exited with code ${code}`);
         }
         this.keepAliveProcess = null;
       });
 
-      log('☕', 'Sleep prevention active (SetThreadExecutionState)');
+      log.info('Sleep prevention active (SetThreadExecutionState)');
     } catch (err) {
-      log('☕', `Windows keep-alive not available: ${err}`);
+      log.warn(`Windows keep-alive not available: ${err}`);
     }
   }
 }

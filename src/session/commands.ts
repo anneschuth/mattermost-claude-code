@@ -32,6 +32,11 @@ import { getClaudeCliVersion } from '../claude/version-check.js';
 
 const log = createLogger('commands');
 
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -87,6 +92,7 @@ async function requireSessionOwner(
 ): Promise<boolean> {
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     await postWarning(session, `Only @${session.startedBy} or allowed users can ${action}`);
+    sessionLog(session).warn(`Unauthorized: @${username} tried to ${action}`);
     return false;
   }
   return true;
@@ -137,8 +143,7 @@ export async function cancelSession(
   username: string,
   ctx: SessionContext
 ): Promise<void> {
-  const shortId = session.threadId.substring(0, 8);
-  log.info(`🛑 Session (${shortId}…) cancelled by @${username}`);
+  sessionLog(session).info(`🛑 Cancelled by @${username}`);
 
   await postCancelled(session, `**Session cancelled** by @${username}`);
 
@@ -154,17 +159,16 @@ export async function interruptSession(
 ): Promise<void> {
   if (!session.claude.isRunning()) {
     await postInfo(session, `Session is idle, nothing to interrupt`);
+    sessionLog(session).debug(`Interrupt requested but session is idle`);
     return;
   }
-
-  const shortId = session.threadId.substring(0, 8);
 
   // Set flag BEFORE interrupt - if Claude exits due to SIGINT, we won't unpersist
   session.wasInterrupted = true;
   const interrupted = session.claude.interrupt();
 
   if (interrupted) {
-    log.info(`⏸️ Session (${shortId}…) interrupted by @${username}`);
+    sessionLog(session).info(`⏸️ Interrupted by @${username}`);
     await postInterrupt(session, `**Interrupted** by @${username}`);
   }
 }
@@ -198,17 +202,18 @@ export async function changeDirectory(
   // Check if directory exists
   if (!existsSync(absoluteDir)) {
     await postError(session, `Directory does not exist: \`${newDir}\``);
+    sessionLog(session).warn(`📂 Directory does not exist: ${newDir}`);
     return;
   }
 
   if (!statSync(absoluteDir).isDirectory()) {
     await postError(session, `Not a directory: \`${newDir}\``);
+    sessionLog(session).warn(`📂 Not a directory: ${newDir}`);
     return;
   }
 
-  const shortId = session.threadId.substring(0, 8);
   const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
-  log.info(`📂 Session (${shortId}…) changing directory to ${shortDir}`);
+  sessionLog(session).info(`📂 Changing directory to ${shortDir}`);
 
   // Update session working directory
   session.workingDir = absoluteDir;
@@ -225,6 +230,7 @@ export async function changeDirectory(
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
+    logSessionId: session.sessionId,  // Route logs to session panel
   };
 
   // Restart Claude with new options
@@ -270,12 +276,13 @@ export async function inviteUser(
   const user = await session.platform.getUserByUsername(invitedUser);
   if (!user) {
     await postWarning(session, `User @${invitedUser} does not exist on this platform`);
+    sessionLog(session).warn(`👋 User @${invitedUser} not found`);
     return;
   }
 
   session.sessionAllowedUsers.add(invitedUser);
   await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
-  log.info(`👋 @${invitedUser} invited to session by @${invitedBy}`);
+  sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
   await updateSessionHeader(session, ctx);
   ctx.ops.persistSession(session);
 }
@@ -298,28 +305,32 @@ export async function kickUser(
   const user = await session.platform.getUserByUsername(kickedUser);
   if (!user) {
     await postWarning(session, `User @${kickedUser} does not exist on this platform`);
+    sessionLog(session).warn(`🚫 User @${kickedUser} not found`);
     return;
   }
 
   // Can't kick session owner
   if (kickedUser === session.startedBy) {
     await postWarning(session, `Cannot kick session owner @${session.startedBy}`);
+    sessionLog(session).warn(`🚫 Cannot kick session owner @${session.startedBy}`);
     return;
   }
 
   // Can't kick globally allowed users
   if (session.platform.isUserAllowed(kickedUser)) {
     await postWarning(session, `@${kickedUser} is globally allowed and cannot be kicked from individual sessions`);
+    sessionLog(session).warn(`🚫 Cannot kick globally allowed user @${kickedUser}`);
     return;
   }
 
   if (session.sessionAllowedUsers.delete(kickedUser)) {
     await postUser(session, `@${kickedUser} removed from this session by @${kickedBy}`);
-    log.info(`🚫 @${kickedUser} kicked from session by @${kickedBy}`);
+    sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     await updateSessionHeader(session, ctx);
     ctx.ops.persistSession(session);
   } else {
     await postWarning(session, `@${kickedUser} was not in this session`);
+    sessionLog(session).warn(`🚫 @${kickedUser} was not in session`);
   }
 }
 
@@ -343,20 +354,21 @@ export async function enableInteractivePermissions(
   // Can only downgrade, not upgrade
   if (!ctx.config.skipPermissions) {
     await postInfo(session, `Permissions are already interactive for this session`);
+    sessionLog(session).debug(`🔐 Permissions already interactive (global setting)`);
     return;
   }
 
   // Already enabled for this session
   if (session.forceInteractivePermissions) {
     await postInfo(session, `Interactive permissions already enabled for this session`);
+    sessionLog(session).debug(`🔐 Permissions already interactive (session override)`);
     return;
   }
 
   // Set the flag
   session.forceInteractivePermissions = true;
 
-  const shortId = session.threadId.substring(0, 8);
-  log.info(`🔐 Session (${shortId}…) enabling interactive permissions`);
+  sessionLog(session).info(`🔐 Enabling interactive permissions`);
 
   // Create new CLI options with interactive permissions
   const cliOptions: ClaudeCliOptions = {
@@ -367,6 +379,7 @@ export async function enableInteractivePermissions(
     resume: true, // Resume to keep conversation context
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
+    logSessionId: session.sessionId,  // Route logs to session panel
   };
 
   // Restart Claude with new options
@@ -378,7 +391,7 @@ export async function enableInteractivePermissions(
 
   // Post confirmation
   await postSecure(session, `**Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`);
-  log.info(`🔐 Interactive permissions enabled for session by @${username}`);
+  sessionLog(session).info(`🔐 Interactive permissions enabled by @${username}`);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
   resetSessionActivity(session);

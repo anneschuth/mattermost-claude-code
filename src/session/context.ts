@@ -15,6 +15,7 @@ import type { Session } from './types.js';
 import type { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { SessionStore } from '../persistence/session-store.js';
+import type { SessionInfo } from '../ui/types.js';
 
 // =============================================================================
 // Configuration (read-only state)
@@ -177,6 +178,19 @@ export interface SessionOperations {
     queuedPrompt: string,
     excludePostId?: string
   ): Promise<boolean>;
+
+  // ---------------------------------------------------------------------------
+  // UI Event Emission
+  // ---------------------------------------------------------------------------
+
+  /** Emit session:add event for UI */
+  emitSessionAdd(session: Session): void;
+
+  /** Emit session:update event for UI */
+  emitSessionUpdate(sessionId: string, updates: Partial<SessionInfo>): void;
+
+  /** Emit session:remove event for UI */
+  emitSessionRemove(sessionId: string): void;
 }
 
 // =============================================================================

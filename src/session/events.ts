@@ -6,6 +6,7 @@
  */
 
 import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
 import {
@@ -25,6 +26,11 @@ import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
 
 const log = createLogger('events');
+
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -71,6 +77,11 @@ function extractAndUpdateMetadata(
       ctx.ops.persistSession(session);
       ctx.ops.updateStickyMessage().catch(() => {});
       ctx.ops.updateSessionHeader(session).catch(() => {});
+      // Update CLI UI with new title/description
+      const updates: Record<string, string> = {};
+      if (sessionField === 'sessionTitle') updates.title = newValue;
+      if (sessionField === 'sessionDescription') updates.description = newValue;
+      ctx.ops.emitSessionUpdate(session.sessionId, updates);
     }
   }
 
@@ -112,7 +123,7 @@ function extractAndUpdatePullRequest(
   const prUrl = extractPullRequestUrl(text);
   if (prUrl) {
     session.pullRequestUrl = prUrl;
-    log.info(`🔗 Detected PR URL: ${prUrl}`);
+    sessionLog(session).info(`🔗 Detected PR URL: ${prUrl}`);
 
     // Persist and update UI
     ctx.ops.persistSession(session);
@@ -144,6 +155,8 @@ export function handleEvent(
   if (!session.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
     session.hasClaudeResponded = true;
     ctx.ops.persistSession(session);
+    // Update UI status from 'starting' to 'active'
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
   }
 
   // Check for special tool uses that need custom handling
@@ -204,9 +217,7 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
-  log.debug(
-    `handleEvent(${session.threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`
-  );
+  sessionLog(session).debugJson(`handleEvent: ${event.type}`, event);
   if (formatted) ctx.ops.appendContent(session, formatted);
 
   // After tool_result events, check if we should flush and start a new post
@@ -321,6 +332,10 @@ function formatEvent(
       session.currentPostId = null;
       session.pendingContent = '';
 
+      // Mark as no longer processing and update UI
+      session.isProcessing = false;
+      ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
+
       // Extract usage stats from result event
       updateUsageStats(session, e, ctx);
 
@@ -365,13 +380,13 @@ async function handleExitPlanMode(
   // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
   // so we can't send another tool_result - just let the CLI handle it
   if (session.planApproved) {
-    log.debug('Plan already approved, letting CLI handle it');
+    sessionLog(session).debug('Plan already approved, letting CLI handle it');
     return;
   }
 
   // If we already have a pending approval, don't post another one
   if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-    log.debug('Plan approval already pending, waiting');
+    sessionLog(session).debug('Plan approval already pending, waiting');
     return;
   }
 
@@ -663,7 +678,7 @@ async function handleAskUserQuestion(
 ): Promise<void> {
   // If we already have pending questions, don't start another set
   if (session.pendingQuestionSet) {
-    log.debug('Questions already pending, waiting');
+    sessionLog(session).debug('Questions already pending, waiting');
     return;
   }
 
@@ -862,7 +877,7 @@ function updateUsageStats(
   const contextPct = contextWindowSize > 0
     ? Math.round((contextTokens / contextWindowSize) * 100)
     : 0;
-  log.debug(
+  sessionLog(session).info(
     `Updated usage stats: ${usageStats.modelDisplayName}, ` +
     `context ${contextTokens}/${contextWindowSize} (${contextPct}%), ` +
     `$${usageStats.totalCostUSD.toFixed(4)}`
@@ -920,7 +935,7 @@ function updateUsageFromStatusLine(session: Session): void {
     const contextPct = session.usageStats.contextWindowSize > 0
       ? Math.round((contextTokens / session.usageStats.contextWindowSize) * 100)
       : 0;
-    log.debug(
+    sessionLog(session).debug(
       `Updated from status line: context ${contextTokens}/${session.usageStats.contextWindowSize} (${contextPct}%)`
     );
   }

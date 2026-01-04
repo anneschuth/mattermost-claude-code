@@ -7,6 +7,7 @@
  */
 
 import type { Session } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
 import type { WorktreeMode } from '../config.js';
@@ -201,6 +202,27 @@ function getActiveTask(session: Session): string | null {
     return match[1].trim();
   }
   return null;
+}
+
+/**
+ * Get status indicator for a session.
+ * Uses small, subtle text symbols at end of line.
+ */
+function getStatusIndicator(session: Session): string {
+  const status = getSessionStatus(session);
+  switch (status) {
+    case 'starting':
+    case 'active':
+      return '●'; // Filled circle - working
+    case 'idle':
+      return '○'; // Empty circle - idle/waiting
+    case 'stopping':
+      return '◌'; // Dotted circle - stopping
+    case 'paused':
+      return '⏸'; // Paused
+    default:
+      return '○';
+  }
 }
 
 /**
@@ -422,7 +444,10 @@ export async function buildStickyMessage(
     // Build PR link if available (compact format on same line)
     const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
 
-    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time}`);
+    // Status indicator at end (● active, ○ idle)
+    const statusIcon = getStatusIndicator(session);
+
+    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time} ${statusIcon}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {
@@ -510,7 +535,6 @@ async function updateStickyMessageImpl(
   const shouldBump = needsBump.get(platform.platformId) ?? false;
 
   log.debug(`existingPostId: ${existingPostId || '(none)'}, needsBump: ${shouldBump}`);
-  log.debug(`content preview: ${content.substring(0, 100).replace(/\n/g, '\\n')}...`);
 
   try {
     // If we have an existing post and no bump is needed, just update in place
@@ -577,7 +601,7 @@ async function updateStickyMessageImpl(
 
     log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
   } catch (err) {
-    log.error(`⚠️ Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
+    log.error(`Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
   }
 }
 
@@ -677,6 +701,6 @@ export async function cleanupOldStickyMessages(
       }
     }
   } catch (err) {
-    log.error(`⚠️ Failed to cleanup old sticky messages`, err instanceof Error ? err : undefined);
+    log.error(`Failed to cleanup old sticky messages`, err instanceof Error ? err : undefined);
   }
 }

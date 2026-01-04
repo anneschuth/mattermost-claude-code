@@ -9,11 +9,13 @@ import { SessionManager } from './session/index.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
-import { printLogo } from './logo.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
-import { dim, bold, cyan, yellow, red } from './utils/output.js';
+import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
+import { startUI, type UIInstance } from './ui/index.js';
+import { setLogHandler } from './utils/logger.js';
+import { setSessionLogHandler } from './utils/format.js';
 
 // Define CLI options
 program
@@ -91,9 +93,8 @@ async function main() {
     newConfig.keepAlive = cliArgs.keepAlive;
   }
 
-  // Apply keep-alive setting (default to true if not specified)
+  // Determine keep-alive setting (actual setup happens after UI is ready)
   const keepAliveEnabled = newConfig.keepAlive !== false;
-  keepAlive.setEnabled(keepAliveEnabled);
 
   // Get first Mattermost platform
   const platformConfig = newConfig.platforms.find(p => p.type === 'mattermost') as MattermostPlatformConfig;
@@ -103,42 +104,8 @@ async function main() {
 
   const config = newConfig;
 
-  // Print ASCII logo
-  printLogo();
-
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
-
-  // Startup info
-  console.log(dim(`  v${VERSION}`));
-  console.log('');
-  console.log(`  📂 ${cyan(workingDir)}`);
-  console.log(`  💬 ${cyan('@' + platformConfig.botName)}`);
-  console.log(`  🌐 ${dim(platformConfig.url)}`);
-
-  // Display Claude CLI version
-  if (claudeValidation.installed) {
-    if (claudeValidation.compatible) {
-      console.log(`  🤖 ${dim(`Claude CLI ${claudeValidation.version}`)}`);
-    } else {
-      console.log(`  🤖 ${yellow(`Claude CLI ${claudeValidation.version} (incompatible)`)}`);
-    }
-  } else {
-    console.log(`  🤖 ${red('Claude CLI not found')}`);
-  }
-
-  if (platformConfig.skipPermissions) {
-    console.log(`  ⚠️ ${dim('Permissions disabled')}`);
-  } else {
-    console.log(`  🔐 ${dim('Interactive permissions')}`);
-  }
-  if (config.chrome) {
-    console.log(`  🌐 ${dim('Chrome integration enabled')}`);
-  }
-  if (keepAliveEnabled) {
-    console.log(`  ☕ ${dim('Keep-alive enabled')}`);
-  }
-  console.log('');
 
   // Fail on incompatible version unless --skip-version-check is set
   if (!claudeValidation.compatible && !opts.skipVersionCheck) {
@@ -148,6 +115,46 @@ async function main() {
     console.error('');
     process.exit(1);
   }
+
+  // Mutable reference for shutdown - set after all components initialized
+  let triggerShutdown: (() => void) | null = null;
+
+  // Start the Ink UI
+  const ui: UIInstance = await startUI({
+    config: {
+      version: VERSION,
+      workingDir,
+      claudeVersion: claudeValidation.version || 'unknown',
+      claudeCompatible: claudeValidation.compatible,
+      skipPermissions: platformConfig.skipPermissions,
+      chromeEnabled: config.chrome ?? false,
+      keepAliveEnabled,
+    },
+    onQuit: () => {
+      if (triggerShutdown) triggerShutdown();
+    },
+  });
+
+  // Register platform with UI
+  ui.setPlatformStatus(platformConfig.id, {
+    displayName: platformConfig.displayName || platformConfig.id,
+    botName: platformConfig.botName,
+    url: platformConfig.url,
+  });
+
+  // Route all logger output through the UI
+  setLogHandler((level, component, message, sessionId) => {
+    ui.addLog({ level, component, message, sessionId });
+  });
+
+  // Route session-specific logs through the UI
+  // Session ID allows routing to the correct session panel
+  setSessionLogHandler((level, message, sessionId) => {
+    ui.addLog({ level, component: 'session', message, sessionId });
+  });
+
+  // Now that output handler is set, enable keep-alive (will route logs through UI)
+  keepAlive.setEnabled(keepAliveEnabled);
 
   const mattermost = new MattermostClient(platformConfig);
   const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
@@ -174,7 +181,7 @@ async function main() {
           await mattermost.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
         } catch { /* ignore */ }
       }
-      console.log(`  🔴 EMERGENCY SHUTDOWN initiated by @${username}`);
+      ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
       session.killAllSessionsAndUnpersist();
       mattermost.disconnect();
       process.exit(1);
@@ -426,7 +433,7 @@ async function main() {
 
     await session.startSession({ prompt, files }, username, threadRoot, platformConfig.id, user?.displayName);
     } catch (err) {
-      console.error('  ❌ Error handling message:', err);
+      ui.addLog({ level: 'error', component: '❌', message: `Error handling message: ${err}` });
       // Try to notify user if possible
       try {
         const threadRoot = post.rootId || post.id;
@@ -440,25 +447,51 @@ async function main() {
     }
   });
 
-  mattermost.on('connected', () => {});
-  mattermost.on('error', (e) => console.error('  ❌ Error:', e));
+  // Wire up platform events to UI
+  mattermost.on('connected', () => {
+    ui.setPlatformStatus(platformConfig.id, { connected: true, reconnecting: false, reconnectAttempts: 0 });
+  });
+  mattermost.on('disconnected', () => {
+    ui.setPlatformStatus(platformConfig.id, { connected: false, reconnecting: true });
+  });
+  mattermost.on('reconnecting', (attempt: number) => {
+    ui.setPlatformStatus(platformConfig.id, { reconnecting: true, reconnectAttempts: attempt });
+  });
+  mattermost.on('error', (e) => {
+    // TODO: Refactor index.ts to support multiple platforms generically
+    ui.addLog({ level: 'error', component: 'mattermost', message: String(e) });
+  });
+
+  // Wire up session events to UI
+  session.on('session:add', (info) => {
+    ui.addSession(info);
+  });
+  session.on('session:update', (sessionId, updates) => {
+    ui.updateSession(sessionId, updates);
+  });
+  session.on('session:remove', (sessionId) => {
+    ui.removeSession(sessionId);
+  });
 
   await mattermost.connect();
 
   // Resume any persisted sessions from before restart
   await session.initialize();
 
-  console.log(`  ✅ ${bold('Ready!')} Waiting for @${platformConfig.botName} mentions...`);
-  console.log('');
+  // Mark UI as ready
+  ui.setReady();
 
   let isShuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = async (_signal: string) => {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
     isShuttingDown = true;
 
-    console.log('');
-    console.log(`  👋 ${dim('Shutting down...')}`);
+    // Update status bar to show shutdown in progress
+    ui.setShuttingDown();
+
+    // Give React a moment to render the shutdown state
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Set shutdown flag FIRST to prevent race conditions with exit events
     session.setShuttingDown();
@@ -466,7 +499,7 @@ async function main() {
     // Post shutdown message to active sessions (updates existing timeout posts or creates new ones)
     const activeCount = session.getActiveThreadIds().length;
     if (activeCount > 0) {
-      console.log(`  📤 Notifying ${activeCount} active session(s)...`);
+      ui.addLog({ level: 'info', component: '📤', message: `Notifying ${activeCount} active session(s)...` });
       await session.postShutdownMessages();
     }
 
@@ -474,18 +507,22 @@ async function main() {
     mattermost.disconnect();
     // Don't call process.exit() here - let the signal handler do it after we resolve
   };
+
+  // Wire up the Ctrl+C handler from UI to shutdown
+  triggerShutdown = () => {
+    shutdown('Ctrl+C').finally(() => process.exit(0));
+  };
+
   // Remove any existing signal handlers (e.g., from 'when-exit' package)
   // and register our own to ensure graceful shutdown
   process.removeAllListeners('SIGINT');
   process.removeAllListeners('SIGTERM');
 
   process.on('SIGINT', () => {
-    console.log('\n  👋 Shutting down (SIGINT)...');
-    shutdown().finally(() => process.exit(0));
+    shutdown('SIGINT').finally(() => process.exit(0));
   });
   process.on('SIGTERM', () => {
-    console.log('\n  👋 Shutting down (SIGTERM)...');
-    shutdown().finally(() => process.exit(0));
+    shutdown('SIGTERM').finally(() => process.exit(0));
   });
 }
 

@@ -15,15 +15,29 @@
 // =============================================================================
 
 /**
+ * Extract the thread ID from a composite session ID.
+ * Composite IDs are in format "platformId:threadId".
+ *
+ * @param sessionId - The composite session ID or plain thread ID
+ * @returns The thread ID portion
+ */
+export function extractThreadId(sessionId: string): string {
+  const colonIndex = sessionId.indexOf(':');
+  return colonIndex >= 0 ? sessionId.substring(colonIndex + 1) : sessionId;
+}
+
+/**
  * Format a session/thread ID for display.
  * Shows first 8 characters followed by ellipsis.
+ * Handles both composite IDs (platformId:threadId) and plain thread IDs.
  *
- * @param id - The full ID string
+ * @param id - The full ID string (composite or plain)
  * @returns Shortened ID like "abc12345…"
  */
 export function formatShortId(id: string): string {
-  if (id.length <= 8) return id;
-  return `${id.substring(0, 8)}…`;
+  const threadId = extractThreadId(id);
+  if (threadId.length <= 8) return threadId;
+  return `${threadId.substring(0, 8)}…`;
 }
 
 /**
@@ -42,6 +56,48 @@ export function formatSessionId(id: string): string {
 // =============================================================================
 
 /**
+ * Handler for session log output.
+ * When set, all session logs route through this handler instead of console.log.
+ * The sessionId allows routing logs to specific session panels in the UI.
+ */
+export type SessionLogHandler = (
+  level: 'info' | 'error' | 'debug',
+  message: string,
+  sessionId?: string
+) => void;
+
+let sessionLogHandler: SessionLogHandler | null = null;
+
+/**
+ * Set the global session log handler.
+ * Used by the Ink UI to capture all session logs.
+ */
+export function setSessionLogHandler(handler: SessionLogHandler | null): void {
+  sessionLogHandler = handler;
+}
+
+/**
+ * Internal helper to output a session log message.
+ */
+function outputSessionLog(
+  level: 'info' | 'error' | 'debug',
+  message: string,
+  sessionId?: string
+): void {
+  if (sessionLogHandler) {
+    sessionLogHandler(level, message, sessionId);
+  } else if (level === 'error') {
+    console.error(message);
+  } else if (level === 'debug') {
+    if (process.env.DEBUG === '1') {
+      console.log(message);
+    }
+  } else {
+    console.log(message);
+  }
+}
+
+/**
  * Log a session action to the console.
  * Provides consistent formatting for session-related logs.
  *
@@ -58,7 +114,7 @@ export function logSessionAction(
 ): void {
   const shortId = formatShortId(threadId);
   const userPart = username ? ` by @${username}` : '';
-  console.log(`  ${emoji} ${action} (${shortId})${userPart}`);
+  outputSessionLog('info', `${emoji} ${action} (${shortId})${userPart}`, threadId);
 }
 
 /**
@@ -70,7 +126,7 @@ export const sessionLog = {
    * Log session started
    */
   started: (threadId: string, user: string, dir: string): void => {
-    console.log(`  ✅ Session started (${formatShortId(threadId)}) by @${user} in ${dir}`);
+    outputSessionLog('info', `✅ Session started (${formatShortId(threadId)}) by @${user} in ${dir}`, threadId);
   },
 
   /**
@@ -106,42 +162,42 @@ export const sessionLog = {
    */
   exited: (threadId: string, code: number): void => {
     const emoji = code === 0 ? '✅' : '⚠️';
-    console.log(`  ${emoji} Session (${formatShortId(threadId)}) exited with code ${code}`);
+    outputSessionLog('info', `${emoji} Session (${formatShortId(threadId)}) exited with code ${code}`, threadId);
   },
 
   /**
    * Log session error
    */
   error: (threadId: string, error: string): void => {
-    console.error(`  ⚠️ Session (${formatShortId(threadId)}): ${error}`);
+    outputSessionLog('error', `⚠️ Session (${formatShortId(threadId)}): ${error}`, threadId);
   },
 
   /**
    * Log directory change
    */
   cdChanged: (threadId: string, newDir: string, user: string): void => {
-    console.log(`  📂 Session (${formatShortId(threadId)}) changed to ${newDir} by @${user}`);
+    outputSessionLog('info', `📂 Session (${formatShortId(threadId)}) changed to ${newDir} by @${user}`, threadId);
   },
 
   /**
    * Log user invited
    */
   invited: (threadId: string, invitedUser: string, invitedBy: string): void => {
-    console.log(`  👤 @${invitedUser} invited to session (${formatShortId(threadId)}) by @${invitedBy}`);
+    outputSessionLog('info', `👤 @${invitedUser} invited to session (${formatShortId(threadId)}) by @${invitedBy}`, threadId);
   },
 
   /**
    * Log user kicked
    */
   kicked: (threadId: string, kickedUser: string, kickedBy: string): void => {
-    console.log(`  👤 @${kickedUser} removed from session (${formatShortId(threadId)}) by @${kickedBy}`);
+    outputSessionLog('info', `👤 @${kickedUser} removed from session (${formatShortId(threadId)}) by @${kickedBy}`, threadId);
   },
 
   /**
    * Log worktree created
    */
   worktreeCreated: (threadId: string, branch: string): void => {
-    console.log(`  🌿 Worktree created for branch "${branch}" (${formatShortId(threadId)})`);
+    outputSessionLog('info', `🌿 Worktree created for branch "${branch}" (${formatShortId(threadId)})`, threadId);
   },
 
   /**
@@ -154,7 +210,7 @@ export const sessionLog = {
         ? 'no context selected'
         : `last ${selection} messages selected`;
     const userPart = user ? ` by @${user}` : '';
-    console.log(`  🧵 Session (${formatShortId(threadId)}) context: ${desc}${userPart}`);
+    outputSessionLog('info', `🧵 Session (${formatShortId(threadId)}) context: ${desc}${userPart}`, threadId);
   },
 
   /**
@@ -162,16 +218,14 @@ export const sessionLog = {
    */
   permissionMode: (threadId: string, mode: 'interactive' | 'skip', user: string): void => {
     const emoji = mode === 'interactive' ? '🔐' : '⚡';
-    console.log(`  ${emoji} Session (${formatShortId(threadId)}) permissions set to ${mode} by @${user}`);
+    outputSessionLog('info', `${emoji} Session (${formatShortId(threadId)}) permissions set to ${mode} by @${user}`, threadId);
   },
 
   /**
    * Log debug message (only if debug enabled)
    */
   debug: (threadId: string, message: string): void => {
-    if (process.env.DEBUG === '1') {
-      console.log(`  [debug] Session (${formatShortId(threadId)}): ${message}`);
-    }
+    outputSessionLog('debug', `[debug] Session (${formatShortId(threadId)}): ${message}`, threadId);
   },
 };
 

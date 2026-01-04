@@ -10,10 +10,12 @@
  * - streaming.ts: Message streaming and flushing
  */
 
+import { EventEmitter } from 'events';
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { WorktreeMode } from '../config.js';
+import type { SessionInfo } from '../ui/types.js';
 import {
   isCancelEmoji,
   isEscapeEmoji,
@@ -47,12 +49,17 @@ import {
 } from './context.js';
 
 // Import constants for internal use
-import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
+import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS, getSessionStatus } from './types.js';
 
 /**
  * SessionManager - Main orchestrator for Claude Code sessions
+ *
+ * Emits events:
+ * - 'session:add' (session: SessionInfo) - New session started
+ * - 'session:update' (sessionId: string, updates: Partial<SessionInfo>) - Session state changed
+ * - 'session:remove' (sessionId: string) - Session ended
  */
-export class SessionManager {
+export class SessionManager extends EventEmitter {
   // Platform management
   private platforms: Map<string, PlatformClient> = new Map();
   private workingDir: string;
@@ -80,6 +87,7 @@ export class SessionManager {
     chromeEnabled = false,
     worktreeMode: WorktreeMode = 'prompt'
   ) {
+    super();
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
@@ -188,6 +196,11 @@ export class SessionManager {
 
       // Context prompt
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
+
+      // UI event emission
+      emitSessionAdd: (s) => this.emitSessionAdd(s),
+      emitSessionUpdate: (sid, u) => this.emitSessionUpdate(sid, u),
+      emitSessionRemove: (sid) => this.emitSessionRemove(sid),
     };
 
     return createSessionContext(config, state, ops);
@@ -199,6 +212,53 @@ export class SessionManager {
 
   private getSessionId(platformId: string, threadId: string): string {
     return `${platformId}:${threadId}`;
+  }
+
+  // ---------------------------------------------------------------------------
+  // UI Event Emission
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Convert internal Session to SessionInfo for UI.
+   */
+  private toSessionInfo(session: Session): SessionInfo {
+    return {
+      id: session.sessionId,
+      threadId: session.threadId,
+      startedBy: session.startedBy,
+      displayName: session.displayName,
+      status: getSessionStatus(session),
+      workingDir: session.workingDir,
+      sessionNumber: session.sessionNumber,
+      worktreeBranch: session.worktreeInfo?.branch,
+      // Rich metadata
+      title: session.sessionTitle,
+      description: session.sessionDescription,
+      lastActivity: session.lastActivity,
+      // Typing indicator state
+      isTyping: session.typingTimer !== null,
+    };
+  }
+
+  /**
+   * Emit session:add event with session info for UI.
+   */
+  emitSessionAdd(session: Session): void {
+    this.emit('session:add', this.toSessionInfo(session));
+  }
+
+  /**
+   * Emit session:update event with partial updates for UI.
+   */
+  emitSessionUpdate(sessionId: string, updates: Partial<SessionInfo>): void {
+    this.emit('session:update', sessionId, updates);
+  }
+
+  /**
+   * Emit session:remove event for UI.
+   */
+  emitSessionRemove(sessionId: string): void {
+    this.emit('session:remove', sessionId);
   }
 
   private registerPost(postId: string, threadId: string): void {
@@ -388,7 +448,6 @@ export class SessionManager {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
-      debug: this.debug,
     };
   }
 
@@ -447,11 +506,21 @@ export class SessionManager {
   }
 
   private startTyping(session: Session): void {
+    const wasTyping = session.typingTimer !== null;
     streaming.startTyping(session);
+    // Emit UI update if typing state changed
+    if (!wasTyping && session.typingTimer !== null) {
+      this.emitSessionUpdate(session.sessionId, { isTyping: true });
+    }
   }
 
   private stopTyping(session: Session): void {
+    const wasTyping = session.typingTimer !== null;
     streaming.stopTyping(session);
+    // Emit UI update if typing state changed
+    if (wasTyping && session.typingTimer === null) {
+      this.emitSessionUpdate(session.sessionId, { isTyping: false });
+    }
   }
 
   private async buildMessageContent(

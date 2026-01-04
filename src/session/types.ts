@@ -6,6 +6,7 @@ import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { PendingContextPrompt } from './context-prompt.js';
+import type { SessionInfo } from '../ui/types.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -202,11 +203,28 @@ export interface Session {
   // Message counter for periodic reminders
   messageCount: number;  // Number of user messages sent to Claude in this session
 
+  // Processing state - true when Claude is actively processing a request
+  isProcessing: boolean;
+
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
 
   // Status bar update timer (for periodic refreshes)
   statusBarTimer: ReturnType<typeof setInterval> | null;
+}
+
+// =============================================================================
+// Status Helpers
+// =============================================================================
+
+/**
+ * Compute the UI status for a session based on its state.
+ */
+export function getSessionStatus(session: Session): SessionInfo['status'] {
+  if (session.isProcessing) {
+    return session.hasClaudeResponded ? 'active' : 'starting';
+  }
+  return 'idle';
 }
 
 // =============================================================================

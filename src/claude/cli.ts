@@ -106,6 +106,7 @@ export interface ClaudeCliOptions {
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
   platformConfig?: PlatformMcpConfig;  // Platform-specific config for MCP server
   appendSystemPrompt?: string;  // Additional system prompt to append
+  logSessionId?: string;  // Session ID for log routing (platformId:threadId)
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -116,10 +117,15 @@ export class ClaudeCli extends EventEmitter {
   private statusFilePath: string | null = null;
   private lastStatusData: StatusLineData | null = null;
   private stderrBuffer = '';  // Capture stderr for error detection
+  private log: ReturnType<typeof createLogger>;  // Session-scoped logger
 
   constructor(options: ClaudeCliOptions) {
     super();
     this.options = options;
+    // Create session-scoped logger if logSessionId provided
+    this.log = options.logSessionId
+      ? createLogger('claude').forSession(options.logSessionId)
+      : createLogger('claude');
   }
 
   /**
@@ -271,7 +277,7 @@ export class ClaudeCli extends EventEmitter {
       args.push('--settings', JSON.stringify(statusLineSettings));
     }
 
-    log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
+    this.log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
 
     this.process = spawn(claudePath, args, {
       cwd: this.options.workingDir,
@@ -290,16 +296,16 @@ export class ClaudeCli extends EventEmitter {
       if (this.stderrBuffer.length > 10240) {
         this.stderrBuffer = this.stderrBuffer.slice(-10240);
       }
-      log.debug(`stderr: ${text.trim()}`);
+      this.log.debug(`stderr: ${text.trim()}`);
     });
 
     this.process.on('error', (err) => {
-      log.error(`Claude error: ${err}`);
+      this.log.error(`Claude error: ${err}`);
       this.emit('error', err);
     });
 
     this.process.on('exit', (code) => {
-      log.debug(`Exited ${code}`);
+      this.log.debug(`Exited ${code}`);
       this.process = null;
       this.buffer = '';
       this.emit('exit', code);
@@ -318,7 +324,7 @@ export class ClaudeCli extends EventEmitter {
     const preview = typeof content === 'string'
       ? content.substring(0, 50)
       : `[${content.length} blocks]`;
-    log.debug(`Sending: ${preview}...`);
+    this.log.debug(`Sending: ${preview}...`);
     this.process.stdin.write(msg);
   }
 
@@ -337,7 +343,7 @@ export class ClaudeCli extends EventEmitter {
         }]
       }
     }) + '\n';
-    log.debug(`Sending tool_result for ${toolUseId}`);
+    this.log.debug(`Sending tool_result for ${toolUseId}`);
     this.process.stdin.write(msg);
   }
 
@@ -352,10 +358,10 @@ export class ClaudeCli extends EventEmitter {
 
       try {
         const event = JSON.parse(trimmed) as ClaudeEvent;
-        log.debug(`Event: ${event.type} ${JSON.stringify(event).substring(0, 200)}`);
+        this.log.debugJson(`Event: ${event.type}`, event);
         this.emit('event', event);
       } catch {
-        log.debug(`Raw: ${trimmed.substring(0, 200)}`);
+        // Ignore unparseable lines (usually partial JSON from streaming)
       }
     }
   }

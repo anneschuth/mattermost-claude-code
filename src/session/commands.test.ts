@@ -140,6 +140,9 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       offerContextPrompt: mock(() => Promise.resolve(false)),
       bumpTasksToBottom: mock(() => Promise.resolve()),
       killSession: mock(() => Promise.resolve()),
+      emitSessionAdd: mock(() => {}),
+      emitSessionUpdate: mock(() => {}),
+      emitSessionRemove: mock(() => {}),
     },
   };
 }
