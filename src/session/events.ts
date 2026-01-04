@@ -149,6 +149,8 @@ export function handleEvent(
   if (!session.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
     session.hasClaudeResponded = true;
     ctx.ops.persistSession(session);
+    // Update UI status from 'starting' to 'active'
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: 'active' });
   }
 
   // Check for special tool uses that need custom handling

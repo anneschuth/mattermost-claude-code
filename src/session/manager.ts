@@ -222,12 +222,21 @@ export class SessionManager extends EventEmitter {
    * Convert internal Session to SessionInfo for UI.
    */
   private toSessionInfo(session: Session): SessionInfo {
+    // Compute status from session state
+    let status: SessionInfo['status'];
+    if (session.isProcessing) {
+      // Starting = processing but no response yet
+      status = session.hasClaudeResponded ? 'active' : 'starting';
+    } else {
+      status = 'idle';
+    }
+
     return {
       id: session.sessionId,
       threadId: session.threadId,
       startedBy: session.startedBy,
       displayName: session.displayName,
-      status: session.isProcessing ? 'active' : 'idle',
+      status,
       workingDir: session.workingDir,
       sessionNumber: session.sessionNumber,
       worktreeBranch: session.worktreeInfo?.branch,

@@ -601,9 +601,10 @@ export async function sendFollowUp(
     ? maybeInjectMetadataReminder(content, session)
     : content;
 
-  // Mark as processing and update UI
+  // Mark as processing and update UI (status depends on hasClaudeResponded)
   session.isProcessing = true;
-  ctx.ops.emitSessionUpdate(session.sessionId, { status: 'active' });
+  const status = session.hasClaudeResponded ? 'active' : 'starting';
+  ctx.ops.emitSessionUpdate(session.sessionId, { status });
 
   session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();
