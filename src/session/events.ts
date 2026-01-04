@@ -823,15 +823,14 @@ function updateUsageStats(
  */
 function updateUsageFromStatusLine(session: Session): void {
   const statusData = session.claude.getStatusData();
-  if (!statusData || !statusData.current_usage) return;
+  if (!statusData) return;
 
   // Only update if we have existing usage stats
   if (!session.usageStats) return;
 
-  // Calculate context tokens from status line current_usage
-  const contextTokens = statusData.current_usage.input_tokens +
-    statusData.current_usage.cache_creation_input_tokens +
-    statusData.current_usage.cache_read_input_tokens;
+  // Use total_input_tokens which represents the cumulative context usage
+  // (not current_usage which is just the per-request tokens)
+  const contextTokens = statusData.total_input_tokens || 0;
 
   // Update context tokens if the status line data is newer
   if (statusData.timestamp > session.usageStats.lastUpdated.getTime()) {

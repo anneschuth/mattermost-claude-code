@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-01-03
+
+### Added
+- **Compaction status display** - Shows when Claude CLI is compacting context (🗜️ **Compacting context...**) and when it completes (✅ **Context compacted**). Handles `compact_boundary` events with metadata including trigger type and pre-compaction token count.
+- **Message recovery after reconnection** - Recovers missed messages after WebSocket disconnections (e.g., machine sleep, network issues). Tracks last processed post ID and fetches missed posts via REST API on reconnect.
+
+### Fixed
+- **Timed-out sessions in Recent section** - Fixed bug where timed-out sessions weren't appearing in the "Recent" section of the sticky channel message. Timed-out sessions now show with ⏸️ indicator and a hint to resume via 🔄 reaction.
+- **Task toggle emoji behavior** - Changed from flip behavior to state-based: emoji present = expanded, emoji absent = minimized. Added `reaction_removed` event to platform layer.
+- **Accurate context token calculation** - Fixed incorrect context token calculation by using `total_input_tokens` from the status line instead of per-request tokens.
+
 ## [0.32.0] - 2026-01-03
 
 ### Added

@@ -278,6 +278,77 @@ describe('SessionStore', () => {
       expect(historyB.length).toBe(1);
       expect(historyB[0].threadId).toBe('thread-2');
     });
+
+    it('includes timed-out sessions (with timeoutPostId but no cleanedAt)', () => {
+      const timedOutSession = createTestSession({
+        threadId: 'timed-out-thread',
+        timeoutPostId: 'timeout-post-123',
+        // No cleanedAt - session timed out but wasn't soft-deleted
+      });
+
+      store.save('test-platform:timed-out-thread', timedOutSession);
+
+      // Should appear in history when activeSessions excludes it
+      const history = store.getHistory('test-platform', new Set());
+      expect(history.length).toBe(1);
+      expect(history[0].threadId).toBe('timed-out-thread');
+      expect(history[0].timeoutPostId).toBe('timeout-post-123');
+    });
+
+    it('excludes timed-out sessions that are currently active', () => {
+      const timedOutSession = createTestSession({
+        threadId: 'timed-out-thread',
+        timeoutPostId: 'timeout-post-123',
+      });
+
+      store.save('test-platform:timed-out-thread', timedOutSession);
+
+      // Should NOT appear if the session is active
+      const activeSessions = new Set(['test-platform:timed-out-thread']);
+      const history = store.getHistory('test-platform', activeSessions);
+      expect(history.length).toBe(0);
+    });
+
+    it('does not include timed-out sessions if activeSessions param is not provided', () => {
+      const timedOutSession = createTestSession({
+        threadId: 'timed-out-thread',
+        timeoutPostId: 'timeout-post-123',
+      });
+
+      store.save('test-platform:timed-out-thread', timedOutSession);
+
+      // Without activeSessions param, timed-out sessions should NOT appear
+      // (backward compatibility - only soft-deleted sessions)
+      const history = store.getHistory('test-platform');
+      expect(history.length).toBe(0);
+    });
+
+    it('sorts timed-out and completed sessions together by most recent activity', async () => {
+      // Completed session (with cleanedAt)
+      const completedSession = createTestSession({
+        threadId: 'completed-thread',
+        lastActivityAt: new Date(Date.now() - 5000).toISOString(), // 5 seconds ago
+      });
+      store.save('test-platform:completed-thread', completedSession);
+      store.softDelete('test-platform:completed-thread');
+
+      // Small delay
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Timed-out session (more recent)
+      const timedOutSession = createTestSession({
+        threadId: 'timed-out-thread',
+        timeoutPostId: 'timeout-post-123',
+        lastActivityAt: new Date().toISOString(), // now
+      });
+      store.save('test-platform:timed-out-thread', timedOutSession);
+
+      const history = store.getHistory('test-platform', new Set());
+      expect(history.length).toBe(2);
+      // Timed-out session should be first (more recent lastActivityAt)
+      expect(history[0].threadId).toBe('timed-out-thread');
+      expect(history[1].threadId).toBe('completed-thread');
+    });
   });
 
   describe('cleanHistory', () => {

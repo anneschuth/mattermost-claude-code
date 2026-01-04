@@ -228,13 +228,15 @@ function getHistorySessionTopic(session: PersistedSession): string {
 
 /**
  * Format a history session entry for display.
- * @param session - The soft-deleted session from history
+ * @param session - The inactive session from history (completed or timed out)
  * @returns Formatted line for the sticky message
  */
 function formatHistoryEntry(session: PersistedSession): string[] {
   const topic = getHistorySessionTopic(session);
   const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
   const displayName = session.startedByDisplayName || session.startedBy;
+  // Determine if this is a timed-out (resumable) session or a completed session
+  const isTimedOut = !session.cleanedAt && session.timeoutPostId;
   // Show when the user last worked on it, not when it was cleaned up
   const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);
@@ -242,8 +244,12 @@ function formatHistoryEntry(session: PersistedSession): string[] {
   // Build PR link if available
   const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
 
+  // Use different indicators: ⏸️ for timed out (resumable), ✓ for completed
+  const indicator = isTimedOut ? '⏸️' : '✓';
+  const resumeHint = isTimedOut ? ' · _react 🔄 to resume_' : '';
+
   const lines: string[] = [];
-  lines.push(`  ✓ ${threadLink} · **${displayName}**${prStr} · ${time}`);
+  lines.push(`  ${indicator} ${threadLink} · **${displayName}**${prStr} · ${time}${resumeHint}`);
 
   // Add description on next line if available
   if (session.sessionDescription) {
@@ -351,8 +357,10 @@ export async function buildStickyMessage(
   // Build status bar (shown even when no sessions)
   const statusBar = await buildStatusBar(platformSessions.length, config);
 
-  // Get recent history (soft-deleted sessions)
-  const historySessions = sessionStore ? sessionStore.getHistory(platformId).slice(0, 5) : [];
+  // Get recent history (completed + timed-out sessions)
+  // Pass active session IDs to exclude them from history
+  const activeSessionIds = new Set(sessions.keys());
+  const historySessions = sessionStore ? sessionStore.getHistory(platformId, activeSessionIds).slice(0, 5) : [];
 
   if (platformSessions.length === 0) {
     const lines = [

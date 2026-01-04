@@ -198,22 +198,33 @@ export async function handleMessageApprovalReaction(
 // ---------------------------------------------------------------------------
 
 /**
- * Handle a reaction on the task list post to toggle minimize/expand.
+ * Handle a reaction on the task list post to minimize/expand.
+ * State-based: user adds their reaction = minimized, user removes = expanded.
+ * (The bot's emoji is always present as a clickable toggle button.)
  * Returns true if the toggle was handled, false otherwise.
  */
 export async function handleTaskToggleReaction(
   session: Session,
+  action: 'added' | 'removed',
   ctx: SessionContext
 ): Promise<boolean> {
   if (!session.tasksPostId || !session.lastTasksContent) {
     return false;
   }
 
-  // Toggle the minimized state
-  session.tasksMinimized = !session.tasksMinimized;
+  // State-based: user adds reaction = minimize, user removes reaction = expand
+  // (The bot's emoji is always there; user clicks it to add their reaction = minimize)
+  const shouldMinimize = action === 'added';
+
+  // Skip if already in desired state
+  if (session.tasksMinimized === shouldMinimize) {
+    return true;
+  }
+
+  session.tasksMinimized = shouldMinimize;
 
   if (ctx.config.debug) {
-    log.debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
+    log.debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
   }
 
   // Compute the display message

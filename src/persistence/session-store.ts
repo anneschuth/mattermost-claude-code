@@ -257,24 +257,36 @@ export class SessionStore {
   }
 
   /**
-   * Get all soft-deleted sessions for a platform (for history display)
+   * Get all inactive sessions for a platform (for history display).
+   * Includes both soft-deleted sessions (completed) and timed-out sessions (resumable).
    * @param platformId - Platform instance ID
-   * @returns Array of soft-deleted sessions, sorted by cleanedAt descending
+   * @param activeSessions - Set of currently active session IDs to exclude
+   * @returns Array of inactive sessions, sorted by most recent activity
    */
-  getHistory(platformId: string): PersistedSession[] {
+  getHistory(platformId: string, activeSessions?: Set<string>): PersistedSession[] {
     const data = this.loadRaw();
     const historySessions: PersistedSession[] = [];
 
-    for (const session of Object.values(data.sessions)) {
-      if (session.platformId === platformId && session.cleanedAt) {
+    for (const [sessionId, session] of Object.entries(data.sessions)) {
+      if (session.platformId !== platformId) continue;
+
+      // Include soft-deleted sessions (completed normally)
+      if (session.cleanedAt) {
+        historySessions.push(session);
+        continue;
+      }
+
+      // Include timed-out sessions that are not currently active
+      // These have timeoutPostId set but no cleanedAt
+      if (session.timeoutPostId && activeSessions && !activeSessions.has(sessionId)) {
         historySessions.push(session);
       }
     }
 
-    // Sort by cleanedAt descending (most recent first)
+    // Sort by most recent activity (cleanedAt for completed, lastActivityAt for timed out)
     return historySessions.sort((a, b) => {
-      const aTime = new Date(a.cleanedAt!).getTime();
-      const bTime = new Date(b.cleanedAt!).getTime();
+      const aTime = new Date(a.cleanedAt || a.lastActivityAt).getTime();
+      const bTime = new Date(b.cleanedAt || b.lastActivityAt).getTime();
       return bTime - aTime;
     });
   }

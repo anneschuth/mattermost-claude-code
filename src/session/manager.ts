@@ -106,7 +106,12 @@ export class SessionManager {
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
-        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username);
+        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'added');
+      }
+    });
+    client.on('reaction_removed', (reaction, user) => {
+      if (user) {
+        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'removed');
       }
     });
     // Bump sticky message to bottom when someone posts in the channel
@@ -219,9 +224,15 @@ export class SessionManager {
   // Reaction Handling
   // ---------------------------------------------------------------------------
 
-  private async handleReaction(platformId: string, postId: string, emojiName: string, username: string): Promise<void> {
-    // First, check if this is a resume emoji for a timed-out session
-    if (isResumeEmoji(emojiName)) {
+  private async handleReaction(
+    platformId: string,
+    postId: string,
+    emojiName: string,
+    username: string,
+    action: 'added' | 'removed'
+  ): Promise<void> {
+    // First, check if this is a resume emoji for a timed-out session (only on add)
+    if (action === 'added' && isResumeEmoji(emojiName)) {
       const resumed = await this.tryResumeFromReaction(platformId, postId, username);
       if (resumed) return;
     }
@@ -237,7 +248,7 @@ export class SessionManager {
       return;
     }
 
-    await this.handleSessionReaction(session, postId, emojiName, username);
+    await this.handleSessionReaction(session, postId, emojiName, username, action);
   }
 
   /**
@@ -290,9 +301,18 @@ export class SessionManager {
     return true;
   }
 
-  private async handleSessionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
-    // Handle ❌ on worktree prompt
-    if (session.worktreePromptPostId === postId && emojiName === 'x') {
+  private async handleSessionReaction(
+    session: Session,
+    postId: string,
+    emojiName: string,
+    username: string,
+    action: 'added' | 'removed'
+  ): Promise<void> {
+    // Most reactions only trigger on 'added', not 'removed'
+    // Task toggle is an exception - it's state-based
+
+    // Handle ❌ on worktree prompt (only on add)
+    if (action === 'added' && session.worktreePromptPostId === postId && emojiName === 'x') {
       await worktreeModule.handleWorktreeSkip(
         session,
         username,
@@ -302,8 +322,8 @@ export class SessionManager {
       return;
     }
 
-    // Handle existing worktree join prompt reactions
-    if (session.pendingExistingWorktreePrompt?.postId === postId) {
+    // Handle existing worktree join prompt reactions (only on add)
+    if (action === 'added' && session.pendingExistingWorktreePrompt?.postId === postId) {
       const handled = await reactions.handleExistingWorktreeReaction(
         session,
         postId,
@@ -315,14 +335,14 @@ export class SessionManager {
       if (handled) return;
     }
 
-    // Handle context prompt reactions
-    if (session.pendingContextPrompt?.postId === postId) {
+    // Handle context prompt reactions (only on add)
+    if (action === 'added' && session.pendingContextPrompt?.postId === postId) {
       await this.handleContextPromptReaction(session, emojiName, username);
       return;
     }
 
-    // Handle cancel/escape reactions on session start post
-    if (session.sessionStartPostId === postId) {
+    // Handle cancel/escape reactions on session start post (only on add)
+    if (action === 'added' && session.sessionStartPostId === postId) {
       if (isCancelEmoji(emojiName)) {
         await commands.cancelSession(session, username, this.getContext());
         return;
@@ -333,27 +353,27 @@ export class SessionManager {
       }
     }
 
-    // Handle question reactions
-    if (session.pendingQuestionSet?.currentPostId === postId) {
+    // Handle question reactions (only on add)
+    if (action === 'added' && session.pendingQuestionSet?.currentPostId === postId) {
       await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
       return;
     }
 
-    // Handle plan approval reactions
-    if (session.pendingApproval?.postId === postId) {
+    // Handle plan approval reactions (only on add)
+    if (action === 'added' && session.pendingApproval?.postId === postId) {
       await reactions.handleApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
-    // Handle message approval reactions
-    if (session.pendingMessageApproval?.postId === postId) {
+    // Handle message approval reactions (only on add)
+    if (action === 'added' && session.pendingMessageApproval?.postId === postId) {
       await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
-    // Handle task list toggle reactions (minimize/expand)
+    // Handle task list toggle reactions (minimize/expand) - state-based on both add and remove
     if (session.tasksPostId === postId && isTaskToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, this.getContext());
+      await reactions.handleTaskToggleReaction(session, action, this.getContext());
       return;
     }
   }
