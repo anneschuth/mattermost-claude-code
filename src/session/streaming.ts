@@ -423,6 +423,9 @@ async function bumpTasksToBottomWithContent(
     // Ignore errors - emoji may not exist
   }
 
+  // Unpin the old task post before repurposing it
+  await session.platform.unpinPost(oldTasksPostId).catch(() => {});
+
   // Repurpose the task list post for the new content
   await session.platform.updatePost(oldTasksPostId, newContent);
   registerPost(oldTasksPostId, session.threadId);
@@ -441,6 +444,8 @@ async function bumpTasksToBottomWithContent(
     session.tasksPostId = newTasksPost.id;
     // Register the new task post so reaction clicks are routed to this session
     registerPost(newTasksPost.id, session.threadId);
+    // Pin the new task post
+    await session.platform.pinPost(newTasksPost.id).catch(() => {});
   } else {
     // No task content to re-post, clear the task post ID
     session.tasksPostId = null;
@@ -472,6 +477,9 @@ export async function bumpTasksToBottom(
   }
 
   try {
+    // Unpin the old task post before deleting
+    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+
     // Delete the old task post
     await session.platform.deletePost(session.tasksPostId);
 
@@ -489,6 +497,8 @@ export async function bumpTasksToBottom(
     if (registerPost) {
       registerPost(newPost.id, session.threadId);
     }
+    // Pin the new task post
+    await session.platform.pinPost(newPost.id).catch(() => {});
   } catch (err) {
     log.error(`Failed to bump tasks to bottom: ${err}`);
   }

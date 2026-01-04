@@ -784,6 +784,12 @@ export async function handleExit(
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
+
+  // Unpin task post on session exit
+  if (session.tasksPostId) {
+    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  }
+
   await ctx.ops.flush(session);
 
   if (code !== 0 && code !== null) {
@@ -827,6 +833,11 @@ export async function killSession(
 
   ctx.ops.stopTyping(session);
   session.claude.kill();
+
+  // Unpin task post on session kill
+  if (session.tasksPostId) {
+    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  }
 
   // Clean up session from maps
   mutableSessions(ctx).delete(session.sessionId);
