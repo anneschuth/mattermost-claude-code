@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.7] - 2026-01-04
+
+### Changed
+- **Unified lifecycle post tracking** - Shutdown now uses the same post as timeout/warning, so "Bot shutting down" → "Session resumed" updates a single post instead of creating multiple.
+- **Renamed `timeoutPostId` to `lifecyclePostId`** - Better reflects its use across the full session lifecycle (warning → timeout → shutdown → resume).
+
 ## [0.33.6] - 2026-01-04
 
 ### Changed
