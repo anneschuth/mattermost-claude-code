@@ -212,6 +212,8 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
+  const sessionLog = log.forSession(session.sessionId);
+  sessionLog.debugJson(`handleEvent: ${event.type}`, event);
   if (formatted) ctx.ops.appendContent(session, formatted);
 
   // After tool_result events, check if we should flush and start a new post
