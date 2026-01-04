@@ -315,6 +315,7 @@ export async function createAndSwitchToWorktree(
         chrome: options.chromeEnabled,
         platformConfig: session.platform.getMcpConfig(),
         appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
+        logSessionId: session.sessionId,  // Route logs to session panel
       };
       session.claude = new ClaudeCli(cliOptions);
 

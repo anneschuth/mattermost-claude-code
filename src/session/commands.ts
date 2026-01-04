@@ -225,6 +225,7 @@ export async function changeDirectory(
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
+    logSessionId: session.sessionId,  // Route logs to session panel
   };
 
   // Restart Claude with new options
@@ -367,6 +368,7 @@ export async function enableInteractivePermissions(
     resume: true, // Resume to keep conversation context
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
+    logSessionId: session.sessionId,  // Route logs to session panel
   };
 
   // Restart Claude with new options

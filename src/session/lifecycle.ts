@@ -254,6 +254,7 @@ export async function startSession(
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: CHAT_PLATFORM_PROMPT,
+    logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -450,6 +451,7 @@ export async function resumeSession(
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: needsTitlePrompt ? CHAT_PLATFORM_PROMPT : undefined,
+    logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
 

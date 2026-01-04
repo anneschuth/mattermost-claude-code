@@ -447,7 +447,7 @@ export async function buildStickyMessage(
     // Status indicator at end (● active, ○ idle)
     const statusIcon = getStatusIndicator(session);
 
-    lines.push(`${threadLink} · **${displayName}**${progressStr}${prStr} · ${time} ${statusIcon}`);
+    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time} ${statusIcon}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {
