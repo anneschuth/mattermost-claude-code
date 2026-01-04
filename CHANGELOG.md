@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.5] - 2026-01-04
+
+### Fixed
+- **Task toggle emoji disappearing on uncollapse** - Fixed issue where the task toggle emoji (📋) would disappear when uncollapsing the task list. Added re-add of toggle emoji after expanding tasks.
+- **Status bar cleanup** - Removed redundant session count from status bars, added keep-alive indicator to show connection health.
+
 ## [0.33.4] - 2026-01-04
 
 ### Fixed
