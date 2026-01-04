@@ -434,13 +434,21 @@ async function handleTodoWrite(
         { action: 'Update tasks', session }
       );
       session.lastTasksContent = completedMsg;
+      // Unpin completed task post
+      await session.platform.unpinPost(tasksPostId).catch(() => {});
     }
     return;
   }
 
   // Check if all tasks are completed
   const allCompleted = todos.every((t) => t.status === 'completed');
+  const wasCompleted = session.tasksCompleted;
   session.tasksCompleted = allCompleted;
+
+  // Unpin task post when all tasks complete
+  if (allCompleted && !wasCompleted && session.tasksPostId) {
+    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  }
 
   // Count progress
   const completed = todos.filter((t) => t.status === 'completed').length;
@@ -531,6 +539,8 @@ async function handleTodoWrite(
       session.tasksPostId = post.id;
       // Register the task post so reaction clicks are routed to this session
       ctx.ops.registerPost(post.id, session.threadId);
+      // Pin the task post for easy access
+      await session.platform.pinPost(post.id).catch(() => {});
     }
   }
   // Update sticky message with new task progress

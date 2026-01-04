@@ -67,6 +67,8 @@ function createMockPlatform() {
     removeReaction: mock(async (_postId: string, _emojiName: string): Promise<void> => {
       // Mock - do nothing
     }),
+    pinPost: mock(async (_postId: string): Promise<void> => {}),
+    unpinPost: mock(async (_postId: string): Promise<void> => {}),
     sendTyping: mock(() => {}),
     posts,
   };
