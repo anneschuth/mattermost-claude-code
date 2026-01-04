@@ -413,7 +413,7 @@ export class ClaudeCli extends EventEmitter {
 
   /**
    * Kill the Claude CLI process.
-   * First sends SIGINT to allow graceful shutdown (saving conversation),
+   * Sends two SIGINTs (like Ctrl+C twice in interactive mode) to allow graceful shutdown,
    * then SIGTERM after a timeout if it doesn't exit.
    */
   kill(): void {
@@ -423,11 +423,19 @@ export class ClaudeCli extends EventEmitter {
     const proc = this.process;
     this.process = null;
 
-    // Send SIGINT first to allow graceful shutdown (like pressing Escape)
-    // This gives Claude a chance to save the conversation
+    // Send first SIGINT (interrupts current operation)
     proc.kill('SIGINT');
 
-    // Wait briefly for graceful exit, then force kill
+    // Send second SIGINT after brief delay (triggers exit in interactive mode)
+    const secondSigint = setTimeout(() => {
+      try {
+        proc.kill('SIGINT');
+      } catch {
+        // Process may have already exited
+      }
+    }, 100);
+
+    // Force kill with SIGTERM if still running after grace period
     const forceKillTimeout = setTimeout(() => {
       try {
         proc.kill('SIGTERM');
@@ -436,8 +444,9 @@ export class ClaudeCli extends EventEmitter {
       }
     }, 2000); // 2 second grace period for Claude to save conversation
 
-    // Clear the timeout if process exits cleanly
+    // Clear timeouts if process exits cleanly
     proc.once('exit', () => {
+      clearTimeout(secondSigint);
       clearTimeout(forceKillTimeout);
     });
   }

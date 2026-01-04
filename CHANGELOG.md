@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.3] - 2026-01-04
+
+### Fixed
+- **Graceful shutdown sends two SIGINTs** - Claude CLI requires two Ctrl+C presses to exit in interactive mode. Updated kill() to send two SIGINTs (100ms apart) before falling back to SIGTERM after 2 seconds.
+
 ## [0.33.2] - 2026-01-04
 
 ### Fixed
