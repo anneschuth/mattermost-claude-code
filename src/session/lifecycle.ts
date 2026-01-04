@@ -285,6 +285,7 @@ export async function startSession(
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
+    isProcessing: true,  // Starts as true since we're sending initial prompt
     statusBarTimer: null,  // Will be started after first result event
   };
 
@@ -489,6 +490,7 @@ export async function resumeSession(
     sessionDescription: state.sessionDescription,
     pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
+    isProcessing: true,  // Starts as true since we're resuming with a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
   };
@@ -598,6 +600,10 @@ export async function sendFollowUp(
   const messageToSend = typeof content === 'string'
     ? maybeInjectMetadataReminder(content, session)
     : content;
+
+  // Mark as processing and update UI
+  session.isProcessing = true;
+  ctx.ops.emitSessionUpdate(session.sessionId, { status: 'active' });
 
   session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();

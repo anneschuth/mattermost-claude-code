@@ -327,6 +327,10 @@ function formatEvent(
       session.currentPostId = null;
       session.pendingContent = '';
 
+      // Mark as no longer processing and update UI
+      session.isProcessing = false;
+      ctx.ops.emitSessionUpdate(session.sessionId, { status: 'idle' });
+
       // Extract usage stats from result event
       updateUsageStats(session, e, ctx);
 

@@ -202,6 +202,9 @@ export interface Session {
   // Message counter for periodic reminders
   messageCount: number;  // Number of user messages sent to Claude in this session
 
+  // Processing state - true when Claude is actively processing a request
+  isProcessing: boolean;
+
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
 

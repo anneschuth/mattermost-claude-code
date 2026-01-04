@@ -227,7 +227,7 @@ export class SessionManager extends EventEmitter {
       threadId: session.threadId,
       startedBy: session.startedBy,
       displayName: session.displayName,
-      status: session.isPaused ? 'paused' : session.claude.isReady ? 'active' : 'idle',
+      status: session.isProcessing ? 'active' : 'idle',
       workingDir: session.workingDir,
       sessionNumber: session.sessionNumber,
       worktreeBranch: session.worktreeInfo?.branch,

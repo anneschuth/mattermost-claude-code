@@ -76,11 +76,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
 
 
   // Static content - re-created on resize to fix artifacts
+  // Note: Platforms is NOT static because it needs to update on connect/disconnect
   const staticContent = React.useMemo(() => [
     { id: `header-${resizeCount}`, element: <Header version={config.version} /> },
     { id: `config-${resizeCount}`, element: <ConfigSummary config={config} /> },
-    { id: `platforms-${resizeCount}`, element: <Platforms platforms={state.platforms} /> },
-  ], [config, state.platforms, resizeCount]);
+  ], [config, resizeCount]);
 
   // Get global logs (not associated with a session)
   const globalLogs = getGlobalLogs();
@@ -93,6 +93,9 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
       <Static items={staticContent}>
         {(item) => <Box key={item.id}>{item.element}</Box>}
       </Static>
+
+      {/* Platforms - dynamic, updates on connect/disconnect */}
+      <Platforms platforms={state.platforms} />
 
       {/* Global logs (system messages, keep-alive, etc.) */}
       {hasLogs && (
