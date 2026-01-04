@@ -12,6 +12,7 @@ import {
   isDenialEmoji,
   isAllowAllEmoji,
   getNumberEmojiIndex,
+  TASK_TOGGLE_EMOJIS,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
@@ -251,6 +252,13 @@ export async function handleTaskToggleReaction(
     () => session.platform.updatePost(tasksPostId, displayMessage),
     { action: 'Toggle tasks display', session }
   );
+
+  // Ensure the toggle emoji is present (may have been removed during toggle)
+  try {
+    await session.platform.addReaction(tasksPostId, TASK_TOGGLE_EMOJIS[0]);
+  } catch {
+    // Ignore errors - emoji may already exist or reaction failed
+  }
 
   return true;
 }
