@@ -22,6 +22,8 @@
 export interface Logger {
   /** Log a debug message (only when DEBUG=1) */
   debug: (msg: string, ...args: unknown[]) => void;
+  /** Log a debug message with JSON data, truncated to avoid line-wrapping (only when DEBUG=1) */
+  debugJson: (label: string, data: unknown, maxLen?: number) => void;
   /** Log an info message (always shown) */
   info: (msg: string, ...args: unknown[]) => void;
   /** Log a warning message (always shown) */
@@ -83,10 +85,25 @@ export function createLogger(component: string, useStderr = false, sessionId?: s
     return `${msg} ${args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ')}`;
   };
 
+  // Max length for JSON in debugJson (leaves room for component prefix)
+  const DEFAULT_JSON_MAX_LEN = 60;
+
   return {
     debug: (msg: string, ...args: unknown[]) => {
       if (isDebug()) {
         const fullMsg = formatMessage(msg, args);
+        if (globalLogHandler) {
+          globalLogHandler('debug', component, fullMsg, sessionId);
+        } else {
+          consoleLog(`  [${component}] ${fullMsg}`);
+        }
+      }
+    },
+    debugJson: (label: string, data: unknown, maxLen = DEFAULT_JSON_MAX_LEN) => {
+      if (isDebug()) {
+        const json = JSON.stringify(data);
+        const truncated = json.length > maxLen ? `${json.substring(0, maxLen)}…` : json;
+        const fullMsg = `${label}: ${truncated}`;
         if (globalLogHandler) {
           globalLogHandler('debug', component, fullMsg, sessionId);
         } else {
