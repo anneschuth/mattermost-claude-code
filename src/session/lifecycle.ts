@@ -729,7 +729,7 @@ export async function handleExit(
       () => postInfo(session, message),
       { action: 'Post session pause notification', session }
     );
-    log.info(`Session paused (${shortId}…) — ${ctx.state.sessions.size} active`);
+    sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
     return;
@@ -749,7 +749,7 @@ export async function handleExit(
       () => postWarning(session, `**Session ended** before Claude could respond (exit code ${code}). Please start a new session.`),
       { action: 'Post early exit notification', session }
     );
-    log.info(`Session ended early (${shortId}…) — ${ctx.state.sessions.size} active`);
+    sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);
     await ctx.ops.updateStickyMessage();
     return;
   }
@@ -831,7 +831,7 @@ export async function handleExit(
     log.debug(`Session ${shortId}... non-zero exit, preserving for potential retry`);
   }
 
-  log.info(`■ Session ended (${shortId}…) — ${ctx.state.sessions.size} active`);
+  sessionLog(session).info(`■ Session ended`);
 
   // Update sticky channel message after session end
   await ctx.ops.updateStickyMessage();
@@ -845,8 +845,6 @@ export async function killSession(
   unpersist: boolean,
   ctx: SessionContext
 ): Promise<void> {
-  const shortId = session.threadId.substring(0, 8);
-
   // Set restarting flag to prevent handleExit from also unpersisting
   if (!unpersist) {
     session.isRestarting = true;
@@ -868,7 +866,7 @@ export async function killSession(
     ctx.ops.unpersistSession(session.sessionId);
   }
 
-  log.info(`✖ Session killed (${shortId}…) — ${ctx.state.sessions.size} active`);
+  sessionLog(session).info(`✖ Session killed`);
 
   // Update sticky channel message after session kill
   await ctx.ops.updateStickyMessage();
@@ -921,7 +919,7 @@ export async function cleanupIdleSessions(
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      log.info(`⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
+      sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
 
       const timeoutMessage = `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
