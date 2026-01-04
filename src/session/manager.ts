@@ -269,8 +269,8 @@ export class SessionManager {
       return false;
     }
 
-    // Check if user is allowed
-    const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+    // Check if user is allowed (defensive: handle missing sessionAllowedUsers)
+    const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
     const platform = this.platforms.get(platformId);
     if (!allowedUsers.has(username) && !platform?.isUserAllowed(username)) {
       if (platform) {
@@ -862,7 +862,8 @@ export class SessionManager {
       // Check persisted session
       const persisted = this.getPersistedSession(threadId);
       if (persisted) {
-        return persisted.sessionAllowedUsers.includes(username) ||
+        // Defensive: handle missing sessionAllowedUsers (old persisted data)
+        return (persisted.sessionAllowedUsers || []).includes(username) ||
                this.platforms.get(persisted.platformId)?.isUserAllowed(username) || false;
       }
       return false;

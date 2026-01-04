@@ -380,7 +380,8 @@ async function main() {
       // Check if user is allowed in the paused session
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+        // Defensive: handle missing sessionAllowedUsers (old persisted data)
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
         if (!allowedUsers.has(username) && !mattermost.isUserAllowed(username)) {
           // Not allowed - could request approval but that would require the session to be active
           await mattermost.createPost(`⚠️ @${username} is not authorized to resume this session`, threadRoot);

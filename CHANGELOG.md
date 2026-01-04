@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Session resume broken after v0.33.7** - Fixed migration issue where sessions persisted with the old `timeoutPostId` field name couldn't be resumed after upgrading to v0.33.7. The `timeoutPostId` → `lifecyclePostId` rename now includes a proper migration that converts existing sessions on first load.
+- **Defensive defaults for persisted session fields** - Session resume now uses safe defaults for all optional fields, preventing crashes when loading sessions from older versions that may have missing fields. Fields like `sessionAllowedUsers`, `planApproved`, `forceInteractivePermissions`, etc. now gracefully default instead of potentially causing undefined errors.
+- **Validate required fields before resume** - Sessions with missing critical fields (`threadId`, `platformId`, `claudeSessionId`, `workingDir`) are now skipped gracefully with a warning instead of crashing.
 
 ## [0.33.7] - 2026-01-04
 

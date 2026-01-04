@@ -414,6 +414,44 @@ Claude CLI emits JSON events. Key event types:
 - MCP server handles: permission prompts
 - Both filter to only process allowed users' reactions
 
+## Backward Compatibility Requirements
+
+**CRITICAL:** When modifying persisted data structures (`PersistedSession`, `config.yaml`, `sessions.json`), you MUST maintain backward compatibility. Users may upgrade from any older version, and their persisted data must continue to work.
+
+### Rules for Persisted Data Changes
+
+1. **Never remove fields** - Old data may have them, and removing causes silent failures
+2. **Never rename fields without migration** - Add migration logic in `session-store.ts` to convert old field names
+3. **Always use defensive defaults** - When reading persisted data, use `??` or `||` to provide fallbacks:
+   ```typescript
+   // GOOD - handles missing fields gracefully
+   sessionNumber: state.sessionNumber ?? 1,
+   sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
+
+   // BAD - crashes if field is missing
+   sessionNumber: state.sessionNumber,
+   sessionAllowedUsers: new Set(state.sessionAllowedUsers),
+   ```
+4. **Check both old and new field names** when looking up data:
+   ```typescript
+   // GOOD - supports both old and new field names
+   const lifecycleId = session.lifecyclePostId || (session as LegacySession).timeoutPostId;
+   ```
+5. **Add migrations for field renames** - See `session-store.ts` for examples of migrating `timeoutPostId` → `lifecyclePostId`
+
+### Testing Backward Compatibility
+
+When making changes to persisted data:
+1. Create a test session with the OLD code
+2. Upgrade to the NEW code
+3. Verify the session resumes correctly
+4. Verify all features work (tasks, permissions, worktrees, etc.)
+
+### Files That Store Persisted Data
+
+- `~/.config/claude-threads/sessions.json` - Session state (`PersistedSession` interface)
+- `~/.config/claude-threads/config.yaml` - Bot configuration
+
 ## Future Improvements to Consider
 
 - [ ] Implement Slack platform support

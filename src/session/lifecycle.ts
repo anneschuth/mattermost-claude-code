@@ -365,6 +365,18 @@ export async function resumeSession(
   state: PersistedSession,
   ctx: SessionContext
 ): Promise<void> {
+  // Validate required fields - skip gracefully if critical data is missing
+  if (!state.threadId || !state.platformId || !state.claudeSessionId || !state.workingDir) {
+    const missing = [
+      !state.threadId && 'threadId',
+      !state.platformId && 'platformId',
+      !state.claudeSessionId && 'claudeSessionId',
+      !state.workingDir && 'workingDir',
+    ].filter(Boolean).join(', ');
+    log.warn(`Skipping session with missing required fields: ${missing}`);
+    return;
+  }
+
   const shortId = state.threadId.substring(0, 8);
 
   // Get platform for this session
@@ -427,17 +439,18 @@ export async function resumeSession(
   const claude = new ClaudeCli(cliOptions);
 
   // Rebuild Session object from persisted state
+  // Use defensive defaults for all fields to handle old/incomplete persisted data
   const session: Session = {
     platformId,
     threadId: state.threadId,
     sessionId,
     platform,
     claudeSessionId: state.claudeSessionId,
-    startedBy: state.startedBy,
+    startedBy: state.startedBy || 'unknown',
     startedByDisplayName: state.startedByDisplayName,
-    startedAt: new Date(state.startedAt),
+    startedAt: state.startedAt ? new Date(state.startedAt) : new Date(),
     lastActivityAt: new Date(),
-    sessionNumber: state.sessionNumber,
+    sessionNumber: state.sessionNumber ?? 1,
     workingDir: state.workingDir,
     claude,
     currentPostId: null,
@@ -445,11 +458,11 @@ export async function resumeSession(
     pendingApproval: null,
     pendingQuestionSet: null,
     pendingMessageApproval: null,
-    planApproved: state.planApproved,
-    sessionAllowedUsers: new Set(state.sessionAllowedUsers),
-    forceInteractivePermissions: state.forceInteractivePermissions,
-    sessionStartPostId: state.sessionStartPostId,
-    tasksPostId: state.tasksPostId,
+    planApproved: state.planApproved ?? false,
+    sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
+    forceInteractivePermissions: state.forceInteractivePermissions ?? false,
+    sessionStartPostId: state.sessionStartPostId ?? null,
+    tasksPostId: state.tasksPostId ?? null,
     lastTasksContent: state.lastTasksContent ?? null,
     tasksCompleted: state.tasksCompleted ?? false,
     tasksMinimized: state.tasksMinimized ?? false,
@@ -459,7 +472,7 @@ export async function resumeSession(
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: true,
-    resumeFailCount: state.resumeFailCount || 0,
+    resumeFailCount: state.resumeFailCount ?? 0,
     wasInterrupted: false,
     hasClaudeResponded: true,  // Resumed sessions have already had responses
     inProgressTaskStart: null,
@@ -474,6 +487,7 @@ export async function resumeSession(
     sessionDescription: state.sessionDescription,
     pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
+    lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
   };
 
@@ -500,10 +514,10 @@ export async function resumeSession(
 
     // Post or update resume message
     // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
-    // Otherwise create a new post (shouldn't happen normally)
-    if (state.lifecyclePostId) {
+    // Otherwise create a new post (normal for old persisted sessions without lifecyclePostId)
+    if (session.lifecyclePostId) {
       await withErrorHandling(
-        () => session.platform.updatePost(state.lifecyclePostId!, `🔄 **Session resumed** by @${state.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
+        () => session.platform.updatePost(session.lifecyclePostId!, `🔄 **Session resumed** by @${session.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
         { action: 'Update timeout/shutdown post for resume', session }
       );
       // Clear the lifecyclePostId since we're no longer in timeout/shutdown state

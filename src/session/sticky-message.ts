@@ -237,9 +237,12 @@ function formatHistoryEntry(session: PersistedSession): string[] {
   const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
   const displayName = session.startedByDisplayName || session.startedBy;
   // Determine if this is a timed-out (resumable) session or a completed session
-  const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
+  // Check both new and legacy field names for backward compatibility
+  const legacySession = session as PersistedSession & { timeoutPostId?: string };
+  const isTimedOut = !session.cleanedAt && (session.lifecyclePostId || legacySession.timeoutPostId);
   // Show when the user last worked on it, not when it was cleaned up
-  const lastActivity = new Date(session.lastActivityAt);
+  // Defensive: handle missing lastActivityAt (old persisted data)
+  const lastActivity = session.lastActivityAt ? new Date(session.lastActivityAt) : new Date();
   const time = formatRelativeTimeShort(lastActivity);
 
   // Build PR link if available
