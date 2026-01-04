@@ -56,7 +56,7 @@ export interface PersistedSession {
   pendingContextPrompt?: PersistedContextPrompt; // Waiting for context selection
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
   // Resume support
-  timeoutPostId?: string;                        // Post ID of timeout message (for resume via reaction)
+  lifecyclePostId?: string;                        // Post ID of timeout/shutdown message (for resume via reaction or restart)
   // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
   sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)
@@ -277,8 +277,8 @@ export class SessionStore {
       }
 
       // Include timed-out sessions that are not currently active
-      // These have timeoutPostId set but no cleanedAt
-      if (session.timeoutPostId && activeSessions && !activeSessions.has(sessionId)) {
+      // These have lifecyclePostId set but no cleanedAt
+      if (session.lifecyclePostId && activeSessions && !activeSessions.has(sessionId)) {
         historySessions.push(session);
       }
     }
@@ -363,7 +363,7 @@ export class SessionStore {
     const data = this.loadRaw();
     for (const session of Object.values(data.sessions)) {
       if (session.platformId !== platformId) continue;
-      if (session.timeoutPostId === postId || session.sessionStartPostId === postId) {
+      if (session.lifecyclePostId === postId || session.sessionStartPostId === postId) {
         return session;
       }
     }

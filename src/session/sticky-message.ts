@@ -237,7 +237,7 @@ function formatHistoryEntry(session: PersistedSession): string[] {
   const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
   const displayName = session.startedByDisplayName || session.startedBy;
   // Determine if this is a timed-out (resumable) session or a completed session
-  const isTimedOut = !session.cleanedAt && session.timeoutPostId;
+  const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
   // Show when the user last worked on it, not when it was cleaned up
   const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);

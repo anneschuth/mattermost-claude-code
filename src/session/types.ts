@@ -187,7 +187,7 @@ export interface Session {
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
 
   // Resume support
-  timeoutPostId?: string;  // Post ID of timeout message (for resume via reaction)
+  lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)

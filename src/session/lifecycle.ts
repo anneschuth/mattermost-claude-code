@@ -499,16 +499,17 @@ export async function resumeSession(
     log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
 
     // Post or update resume message
-    // If we have a timeoutPostId, this was a timeout resume - update that post
-    // Otherwise (bot restart), create a new post
-    if (state.timeoutPostId) {
+    // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
+    // Otherwise create a new post (shouldn't happen normally)
+    if (state.lifecyclePostId) {
       await withErrorHandling(
-        () => session.platform.updatePost(state.timeoutPostId!, `🔄 **Session resumed** by @${state.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
-        { action: 'Update timeout post for resume', session }
+        () => session.platform.updatePost(state.lifecyclePostId!, `🔄 **Session resumed** by @${state.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
+        { action: 'Update timeout/shutdown post for resume', session }
       );
-      // Clear the timeoutPostId since we're no longer in timeout state
-      session.timeoutPostId = undefined;
+      // Clear the lifecyclePostId since we're no longer in timeout/shutdown state
+      session.lifecyclePostId = undefined;
     } else {
+      // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
     }
 
@@ -883,10 +884,10 @@ export async function cleanupIdleSessions(
       const timeoutMessage = `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
       // Update existing warning post or create a new one
-      if (session.timeoutPostId) {
+      if (session.lifecyclePostId) {
         // Update the existing warning post to show timeout
         await withErrorHandling(
-          () => session.platform.updatePost(session.timeoutPostId!, `⏱️ ${timeoutMessage}`),
+          () => session.platform.updatePost(session.lifecyclePostId!, `⏱️ ${timeoutMessage}`),
           { action: 'Update timeout post', session }
         );
       } else {
@@ -896,7 +897,7 @@ export async function cleanupIdleSessions(
           { action: 'Post session timeout', session }
         );
         if (timeoutPost) {
-          session.timeoutPostId = timeoutPost.id;
+          session.lifecyclePostId = timeoutPost.id;
           ctx.ops.registerPost(timeoutPost.id, session.threadId);
         }
       }
@@ -921,7 +922,7 @@ export async function cleanupIdleSessions(
         { action: 'Post timeout warning', session }
       );
       if (warningPost) {
-        session.timeoutPostId = warningPost.id;
+        session.lifecyclePostId = warningPost.id;
         ctx.ops.registerPost(warningPost.id, session.threadId);
       }
       session.timeoutWarningPosted = true;

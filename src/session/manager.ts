@@ -535,7 +535,7 @@ export class SessionManager {
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
-      timeoutPostId: session.timeoutPostId,
+      lifecyclePostId: session.lifecyclePostId,
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
       pullRequestUrl: session.pullRequestUrl,
@@ -819,6 +819,31 @@ export class SessionManager {
   getActiveThreadIds(): string[] {
     // Return raw threadIds (not composite sessionIds) for posting to chat
     return [...this.sessions.values()].map(s => s.threadId);
+  }
+
+  /**
+   * Post shutdown messages to all active sessions and persist the post IDs.
+   * This allows the resume to update the same post instead of creating a new one.
+   */
+  async postShutdownMessages(): Promise<void> {
+    const shutdownMessage = `⏸️ **Bot shutting down** - session will resume on restart`;
+
+    for (const session of this.sessions.values()) {
+      try {
+        if (session.lifecyclePostId) {
+          // Update existing timeout/warning post
+          await session.platform.updatePost(session.lifecyclePostId, shutdownMessage);
+        } else {
+          // Create new shutdown post and store the ID
+          const post = await session.platform.createPost(shutdownMessage, session.threadId);
+          session.lifecyclePostId = post.id;
+        }
+        // Persist so resume can find the post ID
+        this.persistSession(session);
+      } catch {
+        // Ignore errors, we're shutting down
+      }
+    }
   }
 
   killAllSessionsAndUnpersist(): void {

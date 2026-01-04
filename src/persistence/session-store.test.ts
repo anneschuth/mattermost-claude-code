@@ -101,11 +101,11 @@ describe('SessionStore', () => {
   });
 
   describe('findByPostId', () => {
-    it('finds a session by timeoutPostId', () => {
+    it('finds a session by lifecyclePostId', () => {
       const session = createTestSession({
         platformId: 'mattermost-main',
         threadId: 'thread-abc',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
       store.save('mattermost-main:thread-abc', session);
 
@@ -129,7 +129,7 @@ describe('SessionStore', () => {
       const session = createTestSession({
         platformId: 'mattermost-main',
         threadId: 'thread-abc',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
       store.save('mattermost-main:thread-abc', session);
 
@@ -141,7 +141,7 @@ describe('SessionStore', () => {
       const session = createTestSession({
         platformId: 'mattermost-main',
         threadId: 'thread-abc',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
       store.save('mattermost-main:thread-abc', session);
 
@@ -149,12 +149,12 @@ describe('SessionStore', () => {
       expect(found).toBeUndefined();
     });
 
-    it('finds session when both timeoutPostId and sessionStartPostId are set', () => {
+    it('finds session when both lifecyclePostId and sessionStartPostId are set', () => {
       const session = createTestSession({
         platformId: 'mattermost-main',
         threadId: 'thread-abc',
         sessionStartPostId: 'start-post-456',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
       store.save('mattermost-main:thread-abc', session);
 
@@ -279,10 +279,10 @@ describe('SessionStore', () => {
       expect(historyB[0].threadId).toBe('thread-2');
     });
 
-    it('includes timed-out sessions (with timeoutPostId but no cleanedAt)', () => {
+    it('includes timed-out sessions (with lifecyclePostId but no cleanedAt)', () => {
       const timedOutSession = createTestSession({
         threadId: 'timed-out-thread',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
         // No cleanedAt - session timed out but wasn't soft-deleted
       });
 
@@ -292,13 +292,13 @@ describe('SessionStore', () => {
       const history = store.getHistory('test-platform', new Set());
       expect(history.length).toBe(1);
       expect(history[0].threadId).toBe('timed-out-thread');
-      expect(history[0].timeoutPostId).toBe('timeout-post-123');
+      expect(history[0].lifecyclePostId).toBe('timeout-post-123');
     });
 
     it('excludes timed-out sessions that are currently active', () => {
       const timedOutSession = createTestSession({
         threadId: 'timed-out-thread',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
 
       store.save('test-platform:timed-out-thread', timedOutSession);
@@ -312,7 +312,7 @@ describe('SessionStore', () => {
     it('does not include timed-out sessions if activeSessions param is not provided', () => {
       const timedOutSession = createTestSession({
         threadId: 'timed-out-thread',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
       });
 
       store.save('test-platform:timed-out-thread', timedOutSession);
@@ -338,7 +338,7 @@ describe('SessionStore', () => {
       // Timed-out session (more recent)
       const timedOutSession = createTestSession({
         threadId: 'timed-out-thread',
-        timeoutPostId: 'timeout-post-123',
+        lifecyclePostId: 'timeout-post-123',
         lastActivityAt: new Date().toISOString(), // now
       });
       store.save('test-platform:timed-out-thread', timedOutSession);

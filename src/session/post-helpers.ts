@@ -251,7 +251,7 @@ export async function postWithReactionsAndRegister(
 export function resetSessionActivity(session: Session): void {
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
-  session.timeoutPostId = undefined;
+  session.lifecyclePostId = undefined;
 }
 
 // =============================================================================

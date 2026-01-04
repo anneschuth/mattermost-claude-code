@@ -462,20 +462,11 @@ async function main() {
     // Set shutdown flag FIRST to prevent race conditions with exit events
     session.setShuttingDown();
 
-    // Post shutdown message to active sessions
-    const activeThreads = session.getActiveThreadIds();
-    if (activeThreads.length > 0) {
-      console.log(`  📤 Notifying ${activeThreads.length} active session(s)...`);
-      for (const threadId of activeThreads) {
-        try {
-          await mattermost.createPost(
-            `⏸️ **Bot shutting down** - session will resume on restart`,
-            threadId
-          );
-        } catch {
-          // Ignore errors, we're shutting down
-        }
-      }
+    // Post shutdown message to active sessions (updates existing timeout posts or creates new ones)
+    const activeCount = session.getActiveThreadIds().length;
+    if (activeCount > 0) {
+      console.log(`  📤 Notifying ${activeCount} active session(s)...`);
+      await session.postShutdownMessages();
     }
 
     await session.killAllSessions();
