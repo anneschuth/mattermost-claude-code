@@ -560,6 +560,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    this.emit('reconnecting', this.reconnectAttempts);
 
     setTimeout(() => {
       this.connect().catch((err) => {

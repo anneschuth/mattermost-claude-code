@@ -449,7 +449,13 @@ async function main() {
 
   // Wire up platform events to UI
   mattermost.on('connected', () => {
-    ui.setPlatformStatus(platformConfig.id, { connected: true, reconnecting: false });
+    ui.setPlatformStatus(platformConfig.id, { connected: true, reconnecting: false, reconnectAttempts: 0 });
+  });
+  mattermost.on('disconnected', () => {
+    ui.setPlatformStatus(platformConfig.id, { connected: false, reconnecting: true });
+  });
+  mattermost.on('reconnecting', (attempt: number) => {
+    ui.setPlatformStatus(platformConfig.id, { reconnecting: true, reconnectAttempts: attempt });
   });
   mattermost.on('error', (e) => {
     ui.addLog({ level: 'error', component: 'mattermost', message: String(e) });

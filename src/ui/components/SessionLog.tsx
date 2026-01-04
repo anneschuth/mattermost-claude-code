@@ -19,7 +19,7 @@ function getColorForLevel(level: LogEntry['level']): string | undefined {
 }
 
 // Pad component name to fixed width for alignment
-const COMPONENT_WIDTH = 9;
+const COMPONENT_WIDTH = 10;
 function padComponent(name: string): string {
   return name.padEnd(COMPONENT_WIDTH);
 }
