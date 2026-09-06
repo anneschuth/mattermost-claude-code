@@ -1023,3 +1023,131 @@ describe('Event Transformer - round-3 review fixes', () => {
     expect(taskOps[0].tasks).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tool activity modes (docs/quiet-tools-spec.md)
+// ---------------------------------------------------------------------------
+
+describe('tool activity: summary and hidden modes', () => {
+  const read = { type: 'tool_use', name: 'Read', id: 'tool1', input: { file_path: '/test/file.ts' } };
+  const readDone = { type: 'tool_result', tool_use_id: 'tool1', content: 'ok' };
+  const readFailed = { type: 'tool_result', tool_use_id: 'tool1', content: 'boom', is_error: true };
+
+  function make(toolActivity: 'summary' | 'hidden'): TransformContext {
+    return {
+      sessionId: 'test-session',
+      formatter: mockFormatter,
+      toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
+      detailed: true,
+      toolActivity,
+    };
+  }
+
+  for (const mode of ['summary', 'hidden'] as const) {
+    it(`${mode}: a tool_use becomes a tool_activity start op, not inline content`, () => {
+      const ctx = make(mode);
+
+      const ops = transformEvent({ type: 'assistant', message: { content: [read] } }, ctx);
+
+      expect(ops.map((op) => op.type)).toEqual(['tool_activity']);
+      expect(ops[0]).toMatchObject({ kind: 'start', toolUseId: 'tool1', name: 'Read' });
+      expect((ops[0] as { display: string }).display).toContain('Read');
+      expect(ctx.toolStartTimes.has('tool1')).toBe(true);
+    });
+
+    it(`${mode}: the tool_result becomes an end op with the outcome, and never an inline ↳ line`, () => {
+      const ctx = make(mode);
+      transformEvent({ type: 'assistant', message: { content: [read] } }, ctx);
+
+      const ops = transformEvent({ type: 'user', message: { content: [readFailed] } }, ctx);
+
+      const end = ops.find((op) => op.type === 'tool_activity');
+      expect(end).toMatchObject({ kind: 'end', toolUseId: 'tool1', ok: false });
+      expect((end as { display: string }).display).toContain('❌');
+      expect(ops.some((op) => op.type === 'append_content')).toBe(false);
+      expect(ctx.toolStartTimes.has('tool1')).toBe(false);
+    });
+  }
+
+  it('summary: a successful result carries ok=true and elapsed time', () => {
+    const ctx = make('summary');
+    transformEvent({ type: 'assistant', message: { content: [read] } }, ctx);
+    ctx.toolStartTimes.set('tool1', Date.now() - 5000);
+
+    const ops = transformEvent({ type: 'user', message: { content: [readDone] } }, ctx);
+
+    const end = ops.find((op) => op.type === 'tool_activity') as { ok: boolean; elapsedMs: number };
+    expect(end.ok).toBe(true);
+    expect(end.elapsedMs).toBeGreaterThanOrEqual(4900);
+  });
+
+  it('summary: text around a tool still streams as content, in order', () => {
+    const ctx = make('summary');
+
+    const ops = transformEvent({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'Looking.' }, read, { type: 'text', text: 'Found it.' }] },
+    }, ctx);
+
+    expect(ops.map((op) => op.type)).toEqual(['append_content', 'tool_activity', 'append_content']);
+  });
+
+  it('summary: a server tool (web search) counts as a start and an immediate end', () => {
+    const ctx = make('summary');
+
+    const ops = transformEvent({
+      type: 'assistant',
+      message: { content: [{ type: 'server_tool_use', name: 'web_search', id: 'srv1', input: { query: 'x' } }] },
+    }, ctx);
+
+    expect(ops.map((op) => (op as { kind?: string }).kind)).toEqual(['start', 'end']);
+    expect(ops[0]).toMatchObject({ toolUseId: 'srv1', name: 'web_search' });
+  });
+
+  it('summary: the result event emits a turn_end op before the final flush', () => {
+    const ctx = make('summary');
+
+    const ops = transformEvent({ type: 'result', result: {} } as ClaudeEvent, ctx);
+
+    expect(ops.slice(0, 2).map((op) => op.type)).toEqual(['tool_activity', 'flush']);
+    expect(ops[0]).toMatchObject({ kind: 'turn_end' });
+  });
+
+  it('full (default): nothing changes — tool_use is inline content and no tool_activity ops appear', () => {
+    const ctx: TransformContext = { sessionId: 's', formatter: mockFormatter, toolStartTimes: new Map(), taskTracker: new TaskTracker(), detailed: true };
+
+    const ops = [
+      ...transformEvent({ type: 'assistant', message: { content: [read] } }, ctx),
+      ...transformEvent({ type: 'user', message: { content: [readDone] } }, ctx),
+      ...transformEvent({ type: 'result', result: {} } as ClaudeEvent, ctx),
+    ];
+
+    expect(ops.some((op) => op.type === 'tool_activity')).toBe(false);
+    expect(ops.filter((op) => op.type === 'append_content').every((op) => (op as { isToolOutput?: boolean }).isToolOutput)).toBe(true);
+  });
+
+  it('legacy top-level tool_use / tool_result events follow the mode too (Codex review)', () => {
+    const ctx = make('hidden');
+
+    const startOps = transformEvent({ type: 'tool_use', tool_use: { id: 'legacy1', name: 'Bash', input: { command: 'ls' } } } as ClaudeEvent, ctx);
+    const endOps = transformEvent({ type: 'tool_result', tool_result: { tool_use_id: 'legacy1', is_error: false } } as ClaudeEvent, ctx);
+
+    expect(startOps.map((op) => op.type)).toEqual(['tool_activity']);
+    expect(startOps[0]).toMatchObject({ kind: 'start', toolUseId: 'legacy1', name: 'Bash' });
+    expect(endOps.map((op) => op.type)).toEqual(['tool_activity', 'flush']);
+    expect(endOps[0]).toMatchObject({ kind: 'end', toolUseId: 'legacy1', ok: true });
+  });
+
+  it('special tools (task list, questions) keep their own ops in summary mode', () => {
+    const ctx = make('summary');
+
+    const ops = transformEvent({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'TodoWrite', id: 't1', input: { todos: [{ content: 'a', status: 'pending', activeForm: 'a' }] } }] },
+    }, ctx);
+
+    expect(ops.some((op) => op.type === 'tool_activity')).toBe(false);
+    expect(ops.some((op) => op.type === 'task_list')).toBe(true);
+  });
+});

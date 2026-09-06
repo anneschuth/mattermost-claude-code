@@ -32,6 +32,7 @@ export type PostType =
   | 'update_prompt'    // Update version prompt
   | 'subagent'         // Subagent status post
   | 'lifecycle'        // Lifecycle message (timeout, pause)
+  | 'tool_details'     // Tool stream posted apart from the reply (toolDetails: thread)
   | 'compaction'       // Context compaction status
   | 'system'           // System messages (errors, info)
   | 'bug_report';      // Bug report post

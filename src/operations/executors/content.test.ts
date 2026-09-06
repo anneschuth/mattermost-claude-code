@@ -1125,4 +1125,93 @@ describe('ContentExecutor', () => {
       expect(updateCalls).toBe(1);
     });
   });
+  describe('Header line (tool activity summary)', () => {
+    it('a header set before any content creates the post header-only, and content joins it below', async () => {
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 2 s');
+      await executor.executeFlush(createFlushOp('test', 'soft_threshold'), ctx);
+
+      expect(platform.createPost).toHaveBeenCalledWith('🔧 1 tool · 2 s', 'thread-123');
+
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', '🔧 1 tool · 2 s\n\nHello');
+      expect(executor.getState().currentPostContent).toBe('Hello');
+    });
+
+    it('a header update with nothing pending re-renders the first post in place', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      executor.setHeader('🔧 1 tool');
+      await executor.executeFlush(createFlushOp('test', 'soft_threshold'), ctx);
+      executor.setHeader('🔧 2 tools');
+      await executor.executeFlush(createFlushOp('test', 'soft_threshold'), ctx);
+
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+      expect(platform.updatePost).toHaveBeenNthCalledWith(1, 'post_1', '🔧 1 tool\n\nHello');
+      expect(platform.updatePost).toHaveBeenNthCalledWith(2, 'post_1', '🔧 2 tools\n\nHello');
+    });
+
+    it('the header stays on the first post of the turn across a split; the continuation has none; a later update edits the first post', async () => {
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool');
+      await executor.executeAppend(createAppendContentOp('test', 'para one'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      // Force a hard split: more than the hard threshold of pending content.
+      const big = Array.from({ length: 400 }, (_, i) => `line ${i} ${'x'.repeat(30)}`).join('\n');
+      await executor.executeAppend(createAppendContentOp('test', big), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      expect(platform.createPost).toHaveBeenCalledTimes(2);
+      const continuation = (platform.createPost as ReturnType<typeof mock>).mock.calls[1][0] as string;
+      expect(continuation.startsWith('🔧')).toBe(false);
+      const firstPostWrites = (platform.updatePost as ReturnType<typeof mock>).mock.calls.filter((c) => c[0] === 'post_1');
+      expect(firstPostWrites.every((c) => (c[1] as string).startsWith('🔧 1 tool\n\n'))).toBe(true);
+
+      executor.setHeader('🔧 2 tools · 9 s');
+      await executor.executeFlush(createFlushOp('test', 'soft_threshold'), ctx);
+
+      const last = (platform.updatePost as ReturnType<typeof mock>).mock.calls.at(-1) as [string, string];
+      expect(last[0]).toBe('post_1');
+      expect(last[1].startsWith('🔧 2 tools · 9 s\n\npara one')).toBe(true);
+      expect(executor.getState().currentPostId).toBe('post_2');
+    });
+
+    it('after a result flush the next header starts a new turn on the current post, or a new one if it was closed', async () => {
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool');
+      await executor.executeAppend(createAppendContentOp('test', 'turn one'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+      executor.closeCurrentPost(ctx);
+
+      executor.setHeader('🔧 3 tools');
+      await executor.executeAppend(createAppendContentOp('test', 'turn two'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      expect(platform.createPost).toHaveBeenNthCalledWith(1, '🔧 1 tool\n\nturn one', 'thread-123');
+      expect(platform.createPost).toHaveBeenNthCalledWith(2, '🔧 3 tools\n\nturn two', 'thread-123');
+    });
+
+    it('a body over the platform limit is truncated to leave room for the header (CodeRabbit)', async () => {
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 2 s');
+      await executor.executeAppend(createAppendContentOp('test', 'x'.repeat(16_050)), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const created = (platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string);
+      const updated = (platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string);
+      expect([...created, ...updated].every((text) => text.length <= 16_000)).toBe(true);
+      expect(created[0].startsWith('🔧 1 tool · 2 s')).toBe(true);
+    });
+
+    it('without a header nothing changes', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      expect(platform.createPost).toHaveBeenCalledWith('Hello', 'thread-123');
+    });
+  });
 });

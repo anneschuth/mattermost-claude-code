@@ -59,6 +59,59 @@ export function resolveOverheadVisibility(
 export interface PlatformOverhead {
   sessionHeader: OverheadVisibility;
   stickyMessage: OverheadVisibility;
+  /** Tool rendering (docs/quiet-tools-spec.md). Defaults to `full` / `none`. */
+  tools: ToolActivitySettings;
+}
+
+// =============================================================================
+// Tool activity (per-platform, default full)
+// =============================================================================
+
+export const TOOL_ACTIVITY_VALUES = ['full', 'summary', 'hidden'] as const;
+/** `full`: every tool inline (today). `summary`: one live line per turn. `hidden`: nothing. */
+export type ToolActivityMode = (typeof TOOL_ACTIVITY_VALUES)[number];
+
+export const TOOL_DETAILS_VALUES = ['thread', 'none'] as const;
+/** Where the full tool stream goes when `toolActivity` is not `full`. */
+export type ToolDetailsMode = (typeof TOOL_DETAILS_VALUES)[number];
+
+export interface ToolActivitySettings {
+  activity: ToolActivityMode;
+  details: ToolDetailsMode;
+}
+
+export const DEFAULT_TOOL_ACTIVITY: ToolActivitySettings = { activity: 'full', details: 'none' };
+
+/**
+ * Normalize the per-platform `toolActivity` / `toolDetails` pair. Undefined
+ * activity → `full`; `summary` without details → `thread`; `hidden` without
+ * details → `none`. Throws with the field path on anything else that does
+ * not make sense, so config errors surface at startup.
+ */
+export function resolveToolActivity(
+  activity: unknown,
+  details: unknown,
+  fieldPath: string,
+): ToolActivitySettings {
+  const act = activity === undefined || activity === null ? 'full' : activity;
+  if (!(TOOL_ACTIVITY_VALUES as readonly unknown[]).includes(act)) {
+    throw new Error(`Invalid ${fieldPath}.toolActivity: expected one of ${TOOL_ACTIVITY_VALUES.join(', ')}, got ${JSON.stringify(activity)}`);
+  }
+  const mode = act as ToolActivityMode;
+  if (details !== undefined && details !== null && !(TOOL_DETAILS_VALUES as readonly unknown[]).includes(details)) {
+    throw new Error(`Invalid ${fieldPath}.toolDetails: expected one of ${TOOL_DETAILS_VALUES.join(', ')}, got ${JSON.stringify(details)}`);
+  }
+  const det = details as ToolDetailsMode | undefined | null;
+  if (mode === 'full') {
+    if (det !== undefined && det !== null) {
+      throw new Error(`Invalid ${fieldPath}.toolDetails: only meaningful with toolActivity summary or hidden`);
+    }
+    return { activity: 'full', details: 'none' };
+  }
+  if (mode === 'hidden' && det === 'thread') {
+    throw new Error(`Invalid ${fieldPath}.toolDetails: hidden has no post of its own to thread under; use summary, or none`);
+  }
+  return { activity: mode, details: det ?? (mode === 'summary' ? 'thread' : 'none') };
 }
 
 // =============================================================================
@@ -469,6 +522,18 @@ export interface PlatformInstanceConfig {
    * the sticky's `description` / `footer` for platforms still rendering it.
    */
   stickyMessage?: OverheadVisibility;
+  /**
+   * How Claude's tool calls render in the reply. `full` (default) streams
+   * every tool inline; `summary` shows one live line (`🔧 12 tools · 40 s`);
+   * `hidden` shows nothing. See docs/quiet-tools-spec.md.
+   */
+  toolActivity?: ToolActivityMode;
+  /**
+   * Where the full tool stream goes when `toolActivity` is not `full`:
+   * `thread` (replies under the turn's post; the default for `summary`) or
+   * `none`. Not accepted with `full`.
+   */
+  toolDetails?: ToolDetailsMode;
   /**
    * Persistent memory for this platform instance (default: fully enabled).
    * See `MemoryOption` for the accepted shapes and layer semantics.

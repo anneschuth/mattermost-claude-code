@@ -21,6 +21,9 @@ export type {
   PermissionMode,
   OverheadVisibility,
   PlatformOverhead,
+  ToolActivityMode,
+  ToolDetailsMode,
+  ToolActivitySettings,
   MemoryOption,
   ResolvedMemoryConfig,
 } from './types.js';
@@ -42,6 +45,8 @@ export {
   DEFAULT_OVERHEAD_VISIBILITY,
   isOverheadVisibility,
   resolveOverheadVisibility,
+  DEFAULT_TOOL_ACTIVITY,
+  resolveToolActivity,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode, OverheadVisibility } from './types.js';

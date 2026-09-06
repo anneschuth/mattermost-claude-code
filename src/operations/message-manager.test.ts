@@ -1215,3 +1215,71 @@ describe('decision bridge abort handling', () => {
     expect(manager.resolveBridgeQuestion([{ header: 'X', answer: 'y' }])).toBe(false);
   });
 });
+
+describe('MessageManager tool activity (summary / hidden)', () => {
+  let platform: PlatformClient;
+  let session: Session;
+  let registeredPosts: Map<string, unknown>;
+  let lastMessage: PlatformPost | null;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createMockSession(platform);
+    registeredPosts = new Map();
+    lastMessage = null;
+  });
+
+  function withToolActivity(settings: { activity: 'summary' | 'hidden'; details: 'thread' | 'none' }) {
+    return new MessageManager({
+      session, platform, postTracker: new PostTracker(),
+      sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: (postId, options) => { registeredPosts.set(postId, options); },
+      updateLastMessage: (post) => { lastMessage = post; },
+      toolActivity: settings,
+    });
+  }
+  const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1', input: { command: 'ls' } }] } } as never;
+  const toolDone = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } } as never;
+  const text = { type: 'assistant', message: { content: [{ type: 'text', text: 'Two files.' }] } } as never;
+  const result = { type: 'result', result: {} } as never;
+  const allTexts = () => [
+    ...(platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string),
+    ...(platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string),
+  ];
+
+  it('summary + none: the reply carries the summary line above the text and no tool line', async () => {
+    const m = withToolActivity({ activity: 'summary', details: 'none' });
+    for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+
+    const finalText = allTexts().at(-1) as string;
+    expect(finalText.startsWith('🔧 1 tool · ')).toBe(true);
+    expect(finalText).toContain('Two files.');
+    expect(finalText).not.toContain('Bash');
+    expect(allTexts().some((t) => t.includes('↳'))).toBe(false);
+  });
+
+  it('summary + thread: the tool lines land in a post under the session thread, registered as tool_details, never as the latest reply', async () => {
+    const m = withToolActivity({ activity: 'summary', details: 'thread' });
+    for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>;
+    const details = calls.find(([content]) => content.includes('Bash'));
+    expect(details).toBeDefined();
+    expect(details?.[1]).toBe('thread-123');
+    // The reply post comes first even though the tool was the first event.
+    expect(calls[0][0].startsWith('🔧')).toBe(true);
+    expect(calls.indexOf(details as [string, string])).toBeGreaterThan(0);
+    expect(details?.[0]).toContain('↳ ✓');
+    const detailsId = `post_${calls.indexOf(details as [string, string]) + 1}`;
+    expect((registeredPosts.get(detailsId) as { type: string }).type).toBe('tool_details');
+    expect(lastMessage?.message.includes('Bash')).toBe(false);
+  });
+
+  it('hidden + none: neither the tools nor a summary appear', async () => {
+    const m = withToolActivity({ activity: 'hidden', details: 'none' });
+    for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+
+    expect(allTexts().some((t) => t.includes('Bash') || t.includes('🔧') || t.includes('↳'))).toBe(false);
+    expect(allTexts().at(-1)).toContain('Two files.');
+  });
+});

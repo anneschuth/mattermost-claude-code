@@ -14,6 +14,11 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
+import { ToolActivityExecutor } from './executors/tool-activity.js';
+import { createThreadSink } from './tool-details/thread.js';
+import { noneSink } from './tool-details/types.js';
+import { isDcmThreadId } from '../platform/utils.js';
+import type { ToolActivitySettings } from '../config/types.js';
 import { TaskTracker, type PersistedTrackedTask } from './task-tracker.js';
 import type { BridgeRequest, BridgeResponse } from '../mcp/decision-bridge.js';
 import {
@@ -63,6 +68,7 @@ import {
   isStatusUpdateOp,
   isLifecycleOp,
   createFlushOp,
+  isToolActivityOp,
 } from './types.js';
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
@@ -125,6 +131,11 @@ export interface MessageManagerOptions {
    * ResolvedLimits.flushDelayMs.
    */
   flushDelayMs?: number;
+  /**
+   * Per-platform tool rendering (docs/quiet-tools-spec.md). Omitted means
+   * `full`: every tool inline, exactly today's behaviour.
+   */
+  toolActivity?: ToolActivitySettings;
 }
 
 /**
@@ -140,6 +151,8 @@ export class MessageManager {
   private platform: PlatformClient;
   private postTracker: PostTracker;
   private contentBreaker: DefaultContentBreaker;
+  private readonly toolActivity: ToolActivitySettings;
+  private toolActivityExecutor: ToolActivityExecutor | null = null;
 
   // Session reference for direct access to Claude CLI, logger, etc.
   private session: Session;
@@ -300,6 +313,49 @@ export class MessageManager {
       updateLastMessage: options.updateLastMessage,
       events: this.events,
     });
+
+    this.toolActivity = options.toolActivity ?? { activity: 'full', details: 'none' };
+    if (this.toolActivity.activity !== 'full') {
+      const sink = this.toolActivity.details === 'thread'
+        ? createThreadSink({
+            contextFor: () => this.toolDetailsContext(),
+            // No task-list bump callbacks: a details post must never repurpose the task list.
+            makeExecutor: () => new ContentExecutor({ registerPost: options.registerPost, updateLastMessage: () => undefined }),
+          })
+        : noneSink;
+      this.toolActivityExecutor = new ToolActivityExecutor({
+        mode: this.toolActivity.activity,
+        sink,
+        onHeader: (line) => {
+          this.contentExecutor.setHeader(line);
+          this.scheduleFlush(this.getExecutorContext());
+        },
+      });
+    }
+  }
+
+  /**
+   * Where a details thread hangs: under the turn's first post in direct
+   * channel mode; in a thread session there are no nested threads, so under
+   * the session thread itself. Null until that post exists.
+   */
+  private toolDetailsContext(): ExecutorContext | null {
+    // Either way the details wait for the reply post: in direct channel mode
+    // because they hang under it, in a thread session so they follow it
+    // rather than precede it (Codex review).
+    const replyPost = this.contentExecutor.getHeaderPostId();
+    if (!replyPost) return null;
+    const root = isDcmThreadId(this.threadId) ? replyPost : this.threadId;
+    const base = this.getExecutorContext();
+    return {
+      ...base,
+      createPost: async (content, options) => {
+        const post = await this.platform.createPost(content, root);
+        // Registered for cleanup, but never as the session's latest reply.
+        this.registerPost(post.id, { ...options, type: 'tool_details' });
+        return post;
+      },
+    };
   }
 
   /**
@@ -315,6 +371,7 @@ export class MessageManager {
       toolStartTimes: this.toolStartTimes,
       taskTracker: this.taskTracker,
       detailed: true,
+      toolActivity: this.toolActivity.activity,
       worktreeInfo: this.worktreePath && this.worktreeBranch
         ? { path: this.worktreePath, branch: this.worktreeBranch }
         : undefined,
@@ -395,6 +452,8 @@ export class MessageManager {
     try {
       if (isContentOp(op)) {
         await this.handleContentOp(op, ctx);
+      } else if (isToolActivityOp(op)) {
+        await this.toolActivityExecutor?.execute(op, ctx);
       } else if (isFlushOp(op)) {
         await this.handleFlushOp(op, ctx);
       } else if (isTaskListOp(op)) {
@@ -449,6 +508,11 @@ export class MessageManager {
 
     // Execute the flush
     await this.contentExecutor.executeFlush(op, ctx);
+
+    // The turn's post now exists (if it ever will): deliver the tool details.
+    if (op.reason === 'result') {
+      await this.toolActivityExecutor?.afterResultFlush(ctx);
+    }
   }
 
   /**
@@ -1376,6 +1440,7 @@ export class MessageManager {
     this.toolStartTimes.clear();
     this.taskTracker.clear();
     this.contentExecutor.reset();
+    this.toolActivityExecutor?.reset();
     this.taskListExecutor.reset();
     this.questionApprovalExecutor.reset();
     this.messageApprovalExecutor.reset();

@@ -24,6 +24,8 @@ import {
   createApprovalOp,
   createSubagentOp,
   createStatusUpdateOp,
+  createToolActivityOp,
+  type ToolActivityMode,
 } from './types.js';
 import { toolFormatterRegistry } from './tool-formatters/index.js';
 import type { WorktreeContext } from './tool-formatters/index.js';
@@ -53,6 +55,15 @@ export interface TransformContext {
   taskTracker: TaskTracker;
   /** Whether to include detailed previews */
   detailed?: boolean;
+  /**
+   * How tools render: `full` (default) inline; `summary` / `hidden` as
+   * ToolActivityOps for the executor to count and route.
+   */
+  toolActivity?: ToolActivityMode;
+}
+
+function toolsInline(ctx: TransformContext): boolean {
+  return (ctx.toolActivity ?? 'full') === 'full';
 }
 
 // ---------------------------------------------------------------------------
@@ -168,8 +179,14 @@ function transformAssistant(
         if (result.display && !result.hidden) {
           // Flush any accumulated text before the tool
           flushTextBuffer();
-          // Create separate operation for tool with isToolOutput=true
-          operations.push(createAppendContentOp(ctx.sessionId, result.display, true));
+          if (toolsInline(ctx)) {
+            // Create separate operation for tool with isToolOutput=true
+            operations.push(createAppendContentOp(ctx.sessionId, result.display, true));
+          } else {
+            operations.push(createToolActivityOp(ctx.sessionId, {
+              kind: 'start', toolUseId: block.id || '', name: block.name, display: result.display,
+            }));
+          }
           // Record the start time so the tool_result (arriving later in a
           // `user` event) can render a completion indicator with elapsed
           // time. Only displayed tools get one — hidden/special tools would
@@ -191,9 +208,15 @@ function transformAssistant(
       // Server-managed tools (e.g., web search) - treat as tool output
       flushTextBuffer();
       const inputStr = block.input ? JSON.stringify(block.input).substring(0, 50) : '';
-      operations.push(
-        createAppendContentOp(ctx.sessionId, `🌐 ${ctx.formatter.formatBold(block.name)} ${inputStr}`, true)
-      );
+      const display = `🌐 ${ctx.formatter.formatBold(block.name)} ${inputStr}`;
+      if (toolsInline(ctx)) {
+        operations.push(createAppendContentOp(ctx.sessionId, display, true));
+      } else {
+        // Server tools have no tool_result; they start and end here.
+        const toolUseId = block.id || '';
+        operations.push(createToolActivityOp(ctx.sessionId, { kind: 'start', toolUseId, name: block.name, display }));
+        operations.push(createToolActivityOp(ctx.sessionId, { kind: 'end', toolUseId, ok: true, elapsedMs: 0, display: '  ↳ ✓' }));
+      }
     }
   }
 
@@ -279,7 +302,9 @@ function transformUser(
     // otherwise produce orphaned "↳ ✓" lines.
     if (ctx.toolStartTimes.has(block.tool_use_id)) {
       operations.push(
-        createResultIndicatorOp(block.tool_use_id, block.is_error === true, ctx)
+        toolsInline(ctx)
+          ? createResultIndicatorOp(block.tool_use_id, block.is_error === true, ctx)
+          : createToolEndOp(block.tool_use_id, block.is_error === true, ctx)
       );
       indicatorCount++;
     }
@@ -344,6 +369,17 @@ function createResultIndicatorOp(
   return createAppendContentOp(ctx.sessionId, `  ↳ ${icon}${errorNote}${elapsed}`, true);
 }
 
+/**
+ * The non-inline twin of createResultIndicatorOp: same ↳ line as `display`,
+ * plus the outcome and elapsed time for the summary counter.
+ */
+function createToolEndOp(toolUseId: string, isError: boolean, ctx: TransformContext): MessageOperation {
+  const startTime = ctx.toolStartTimes.get(toolUseId);
+  const elapsedMs = startTime ? Date.now() - startTime : 0;
+  const indicator = createResultIndicatorOp(toolUseId, isError, ctx) as { content: string };
+  return createToolActivityOp(ctx.sessionId, { kind: 'end', toolUseId, ok: !isError, elapsedMs, display: indicator.content });
+}
+
 // ---------------------------------------------------------------------------
 // Tool Use Event Transformation
 // ---------------------------------------------------------------------------
@@ -380,7 +416,11 @@ function transformToolUse(
   });
 
   if (result.display && !result.hidden) {
-    return [createAppendContentOp(ctx.sessionId, result.display, true)];
+    return [
+      toolsInline(ctx)
+        ? createAppendContentOp(ctx.sessionId, result.display, true)
+        : createToolActivityOp(ctx.sessionId, { kind: 'start', toolUseId: tool.id || '', name: tool.name, display: result.display }),
+    ];
   }
 
   return [];
@@ -407,8 +447,10 @@ function transformToolResult(
     is_error?: boolean;
   };
 
+  const toolUseId = result.tool_use_id || '';
+  const isError = result.is_error === true;
   return [
-    createResultIndicatorOp(result.tool_use_id || '', result.is_error === true, ctx),
+    toolsInline(ctx) ? createResultIndicatorOp(toolUseId, isError, ctx) : createToolEndOp(toolUseId, isError, ctx),
     // Tool results are a natural break point - suggest flush
     createFlushOp(ctx.sessionId, 'tool_complete'),
   ];
@@ -426,6 +468,11 @@ function transformResult(
   ctx: TransformContext
 ): MessageOperation[] {
   const operations: MessageOperation[] = [];
+
+  // The turn is over: the tool summary line becomes final before the flush.
+  if (!toolsInline(ctx)) {
+    operations.push(createToolActivityOp(ctx.sessionId, { kind: 'turn_end' }));
+  }
 
   // Result event triggers a final flush
   operations.push(createFlushOp(ctx.sessionId, 'result'));
