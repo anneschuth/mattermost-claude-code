@@ -79,6 +79,16 @@ export interface ContentState {
   pendingContent: string;
   /** Scheduled flush timer */
   updateTimer: ReturnType<typeof setTimeout> | null;
+  /** One-line header on the turn's first post (tool-activity summary), or null. */
+  header: string | null;
+  /** The header changed since it was last rendered. */
+  headerDirty: boolean;
+  /** The post carrying the header for the current turn, once it exists. */
+  headerPostId: string | null;
+  /** That post's body without the header, for re-rendering after a header change. */
+  headerBody: string;
+  /** A header has been set for the current turn and no result flush has ended it. */
+  turnOpen: boolean;
 }
 
 /**
