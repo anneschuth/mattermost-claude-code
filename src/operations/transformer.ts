@@ -8,7 +8,7 @@
  * that don't depend on session state or platform APIs.
  */
 
-import type { ClaudeEvent } from '../claude/cli.js';
+import { isErrorResultEvent, type ClaudeEvent } from '../claude/cli.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 import type {
   MessageOperation,
@@ -427,8 +427,9 @@ function transformResult(
 ): MessageOperation[] {
   const operations: MessageOperation[] = [];
 
-  // Result event triggers a final flush
-  operations.push(createFlushOp(ctx.sessionId, 'result'));
+  // Result event triggers a final flush; it carries the turn's outcome for
+  // the end-of-turn marker (docs/turn-marker-spec.md).
+  operations.push(createFlushOp(ctx.sessionId, 'result', !isErrorResultEvent(event)));
 
   // Extract usage stats if available
   const result = event as ClaudeEvent & {

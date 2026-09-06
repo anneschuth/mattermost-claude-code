@@ -320,7 +320,7 @@ export function runtimeForScriptPath(scriptPath: string): string {
  * `error_max_turns`, and other `error_*` values. Payloads that set
  * `is_error: true` are also treated as errors.
  */
-function isErrorResultEvent(event: ClaudeEvent): boolean {
+export function isErrorResultEvent(event: ClaudeEvent): boolean {
   const ev = event as { subtype?: unknown; is_error?: unknown };
   if (typeof ev.subtype === 'string' && ev.subtype.startsWith('error')) return true;
   if (ev.is_error === true) return true;

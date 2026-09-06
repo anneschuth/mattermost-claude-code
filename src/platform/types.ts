@@ -43,6 +43,19 @@ export interface PlatformReaction {
 }
 
 /**
+ * Machine-readable metadata attached to a post (Slack message metadata).
+ * Platforms without the concept accept and drop it.
+ */
+export interface PostMetadata {
+  event_type: string;
+  event_payload: Record<string, string | number | boolean>;
+}
+
+export interface PostWriteOptions {
+  metadata?: PostMetadata;
+}
+
+/**
  * Normalized file attachment representation across platforms
  */
 export interface PlatformFile {

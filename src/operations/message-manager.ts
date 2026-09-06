@@ -14,6 +14,7 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
+import { TURN_COMPLETE_EVENT_TYPE, type TurnMarkerSettings } from '../config/types.js';
 import { TaskTracker, type PersistedTrackedTask } from './task-tracker.js';
 import type { BridgeRequest, BridgeResponse } from '../mcp/decision-bridge.js';
 import {
@@ -125,6 +126,8 @@ export interface MessageManagerOptions {
    * ResolvedLimits.flushDelayMs.
    */
   flushDelayMs?: number;
+  /** End-of-turn marker for this platform (docs/turn-marker-spec.md). Omitted = off. */
+  turnMarker?: TurnMarkerSettings;
 }
 
 /**
@@ -140,6 +143,11 @@ export class MessageManager {
   private platform: PlatformClient;
   private postTracker: PostTracker;
   private contentBreaker: DefaultContentBreaker;
+  private readonly turnMarker: TurnMarkerSettings;
+  /** A scheduled (timer) flush that is still writing; the result flush waits for it. */
+  private flushInFlight: Promise<void> | null = null;
+  /** Turns completed by this manager; part of the marker payload. Resets with the manager. */
+  private turn = 0;
 
   // Session reference for direct access to Claude CLI, logger, etc.
   private session: Session;
@@ -235,6 +243,7 @@ export class MessageManager {
     this.startTypingCallback = options.startTyping;
     this.emitSessionUpdateCallback = options.emitSessionUpdate;
     this.flushDelayMs = options.flushDelayMs ?? MessageManager.DEFAULT_FLUSH_DELAY_MS;
+    this.turnMarker = options.turnMarker ?? { mode: 'off' };
 
     // Create event emitter
     this.events = createMessageManagerEvents();
@@ -444,11 +453,42 @@ export class MessageManager {
    * Handle flush operation
    */
   private async handleFlushOp(op: FlushOp, ctx: ExecutorContext): Promise<void> {
-    // Cancel any pending scheduled flush
+    // Cancel any pending scheduled flush, and let one already writing finish
+    if (this.flushInFlight) await this.flushInFlight.catch(() => undefined);
     this.cancelScheduledFlush();
 
     // Execute the flush
     await this.contentExecutor.executeFlush(op, ctx);
+
+    if (op.reason === 'result') {
+      this.turn++;
+      await this.markTurnComplete(ctx, op.resultOk !== false);
+    }
+  }
+
+  /**
+   * End-of-turn marker (docs/turn-marker-spec.md): after the result flush,
+   * mark the turn's last reply post so integrations reading the channel know
+   * the answer is complete. A turn with no reply post marks nothing. A
+   * marker failure is logged and never touches the reply.
+   */
+  private async markTurnComplete(ctx: ExecutorContext, ok: boolean): Promise<void> {
+    if (this.turnMarker.mode === 'off') return;
+    const { currentPostId, currentPostContent } = this.contentExecutor.getState();
+    if (!currentPostId) return;
+    try {
+      if (this.turnMarker.mode === 'metadata') {
+        await this.platform.updatePost(currentPostId, currentPostContent, {
+          metadata: { event_type: TURN_COMPLETE_EVENT_TYPE, event_payload: { session: this.sessionId, turn: this.turn, ok } },
+        });
+      } else {
+        await this.platform.addReaction(currentPostId, this.turnMarker.emoji ?? 'checkered_flag');
+      }
+    } catch (err) {
+      const message = (err as Error).message ?? String(err);
+      if (this.turnMarker.mode === 'reaction' && message.includes('already_reacted')) return;
+      ctx.logger.warn(`turn marker (${this.turnMarker.mode}) failed on ${currentPostId}: ${message}`);
+    }
   }
 
   /**
@@ -457,10 +497,15 @@ export class MessageManager {
   private scheduleFlush(ctx: ExecutorContext): void {
     if (this.flushTimer) return;
 
-    this.flushTimer = setTimeout(async () => {
+    this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       const flushOp = createFlushOp(this.sessionId, 'soft_threshold');
-      await this.contentExecutor.executeFlush(flushOp, ctx);
+      // Tracked so a result flush cannot overlap a write still in progress
+      // (Codex review: the marker would land on the wrong post).
+      const running = this.contentExecutor.executeFlush(flushOp, ctx).finally(() => {
+        if (this.flushInFlight === running) this.flushInFlight = null;
+      });
+      this.flushInFlight = running;
     }, this.flushDelayMs);
   }
 
@@ -1373,6 +1418,7 @@ export class MessageManager {
    */
   reset(): void {
     this.cancelScheduledFlush();
+    this.turn = 0;
     this.toolStartTimes.clear();
     this.taskTracker.clear();
     this.contentExecutor.reset();

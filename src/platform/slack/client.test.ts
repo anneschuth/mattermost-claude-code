@@ -626,3 +626,20 @@ describe('SlackClient bot-authored filter', () => {
     expect(seen).toEqual([{ userId: 'U-ALMIR' }]);
   });
 });
+
+describe('SlackClient post metadata (turn marker)', () => {
+  it('createPost and updatePost carry metadata only when given', async () => {
+    fetchResponder = () => ok({ ts: '1.1', channel: 'C123', message: { text: 'x' }, text: 'x' });
+    const client = makeClient();
+    const meta = { event_type: 'claude_threads_turn_complete', event_payload: { session: 's', turn: 1, ok: true } };
+
+    await client.updatePost('1.1', 'final text', { metadata: meta });
+    await client.updatePost('1.1', 'plain');
+    await client.createPost('new', undefined, { metadata: meta });
+
+    const bodies = fetchCalls.map((c) => c.body as Record<string, unknown>);
+    expect(bodies[0].metadata).toEqual(meta);
+    expect(bodies[1].metadata).toBeUndefined();
+    expect(bodies[2].metadata).toEqual(meta);
+  });
+});

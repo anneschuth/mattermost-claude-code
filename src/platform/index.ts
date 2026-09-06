@@ -25,6 +25,8 @@ export type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostMetadata,
+  PostWriteOptions,
 } from './types.js';
 
 // Platform implementations

@@ -188,7 +188,7 @@ function createSessionContext(): SessionContext {
       refreshClaudeAccountUsage: mock(async () => {}),
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
-      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
+      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const, turnMarker: { mode: 'off' as const } })),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
       isRoutinesEnabled: mock(() => true),
       isWatchesEnabled: mock(() => true),

@@ -1023,3 +1023,17 @@ describe('Event Transformer - round-3 review fixes', () => {
     expect(taskOps[0].tasks).toEqual([]);
   });
 });
+
+describe('result flush carries the outcome (turn marker)', () => {
+  const base = (): TransformContext => ({ sessionId: 's', formatter: mockFormatter, toolStartTimes: new Map(), taskTracker: new TaskTracker(), detailed: true });
+
+  it('a successful result flushes with resultOk true', () => {
+    const ops = transformEvent({ type: 'result', subtype: 'success', result: {} } as ClaudeEvent, base());
+    expect(ops.find((op) => op.type === 'flush')).toMatchObject({ reason: 'result', resultOk: true });
+  });
+
+  it('an error result flushes with resultOk false', () => {
+    const ops = transformEvent({ type: 'result', subtype: 'error_during_execution', is_error: true } as ClaudeEvent, base());
+    expect(ops.find((op) => op.type === 'flush')).toMatchObject({ reason: 'result', resultOk: false });
+  });
+});

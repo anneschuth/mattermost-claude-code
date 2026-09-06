@@ -21,6 +21,8 @@ export type {
   PermissionMode,
   OverheadVisibility,
   PlatformOverhead,
+  TurnMarkerMode,
+  TurnMarkerSettings,
   MemoryOption,
   ResolvedMemoryConfig,
 } from './types.js';
@@ -42,6 +44,9 @@ export {
   DEFAULT_OVERHEAD_VISIBILITY,
   isOverheadVisibility,
   resolveOverheadVisibility,
+  DEFAULT_TURN_MARKER,
+  TURN_COMPLETE_EVENT_TYPE,
+  resolveTurnMarker,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode, OverheadVisibility } from './types.js';

@@ -313,6 +313,26 @@ platforms:
 
 Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-level `Config.stickyMessage: { description, footer }` block, which still customizes the full sticky for platforms not in `hidden` mode.
 
+#### End-of-turn marker
+
+Integrations that read the channel (a voice front end, a phone bridge, a dashboard) need to know when Claude's answer is complete. The daemon streams by editing one post, so without help they can only guess from the text going quiet. With a marker, the daemon stamps the turn's last reply post the moment the turn ends:
+
+```yaml
+platforms:
+  - id: slack-main
+    type: slack
+    turnMarker: metadata          # reaction | metadata | off (default)
+    # turnMarkerEmoji: checkered_flag   # reaction only; this is the default
+```
+
+| `turnMarker` | What happens | Who sees it |
+|---|---|---|
+| `metadata` | the last reply post gets Slack message metadata `event_type: claude_threads_turn_complete`, `event_payload: { session, turn, ok }` | integrations reading `conversations.history` with `include_all_metadata=true`; invisible in the UI. Slack only |
+| `reaction` | the bot reacts on the last reply post with `turnMarkerEmoji` | everyone. Slack and Mattermost |
+| `off` | nothing | |
+
+`ok` is false when the turn ended with an error. A turn with no reply post marks nothing. A marker failure never touches the reply.
+
 ### Memory (`memory`, default: fully enabled)
 
 Each platform instance (≈ one channel) can carry persistent memory, modeled on
