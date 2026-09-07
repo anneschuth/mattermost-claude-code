@@ -17,6 +17,13 @@ export interface PlatformClientEvents {
   connected: () => void;
   disconnected: () => void;
   reconnecting: (attempt: number) => void;
+  /**
+   * Reconnection attempts are exhausted and this platform's policy is `exit`.
+   * The client does NOT end the process itself: one platform's dead socket
+   * must not kill sessions on healthy platforms, and the graceful shutdown
+   * path (persist, notify, restore the terminal) belongs to `index.ts`.
+   */
+  'reconnect-exhausted': (platformId: string) => void;
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
   /** Emitted when a reaction is added */

@@ -1,6 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
+import { resolveReconnectPolicy } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
@@ -72,6 +73,7 @@ export class MattermostClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+    this.setReconnectPolicy(resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`));
   }
 
   // ============================================================================

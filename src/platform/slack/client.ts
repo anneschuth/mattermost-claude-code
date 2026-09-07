@@ -1,6 +1,7 @@
 import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
+import { resolveReconnectPolicy } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
@@ -129,6 +130,7 @@ export class SlackClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+    this.setReconnectPolicy(resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`));
   }
 
   // ============================================================================

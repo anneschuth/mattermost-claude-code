@@ -203,6 +203,19 @@ A few more things set it apart. The full Claude Code permission model lives in t
 
 This table is current as of August 2026. All of these products move quickly — if it has gone stale, [open an issue](https://github.com/anneschuth/claude-threads/issues).
 
+## Staying connected
+
+If the connection to Slack or Mattermost drops, the bot reconnects with
+exponential backoff. When those attempts run out it does **not** sit there
+alive with a dead socket — that "active but deaf" state looks healthy to a
+supervisor and looks broken to everyone in the channel. By default it waits a
+minute, resets, and keeps trying, which recovers on its own.
+
+Running under systemd or another supervisor? Set `reconnectPolicy: exit` on
+the platform and the bot shuts down cleanly and exits non-zero instead, so
+`Restart=always` brings it back with a fresh socket. See the
+[Configuration Reference](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md).
+
 ## Documentation
 
 - **[Setup Guide](https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md)** - Creating the bot account on Mattermost or Slack, step by step

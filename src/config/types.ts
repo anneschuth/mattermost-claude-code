@@ -35,6 +35,35 @@ export function isOverheadVisibility(value: unknown): value is OverheadVisibilit
 }
 
 /**
+ * What a platform does when reconnection attempts are exhausted.
+ *
+ * - `retry` (default) — log at error, wait out a cool-down, reset the counter
+ *   and keep trying. Recovers with no supervisor, which is what an
+ *   interactively run bot needs: dying silently overnight because the wifi
+ *   dropped is a worse first impression than a noisy retry loop.
+ * - `exit` — leave through the graceful shutdown path and exit non-zero, for
+ *   deployments where `Restart=always` is the better recovery mechanism.
+ *
+ * Either way the "active but deaf" state — a live process whose socket is
+ * dead — is the one outcome that must not persist silently (#500).
+ */
+export type ReconnectPolicy = 'retry' | 'exit';
+
+export const RECONNECT_POLICY_VALUES: readonly ReconnectPolicy[] = ['retry', 'exit'] as const;
+
+export const DEFAULT_RECONNECT_POLICY: ReconnectPolicy = 'retry';
+
+export function resolveReconnectPolicy(value: unknown, fieldPath: string): ReconnectPolicy {
+  if (value === undefined || value === null) return DEFAULT_RECONNECT_POLICY;
+  if (typeof value === 'string' && (RECONNECT_POLICY_VALUES as readonly string[]).includes(value)) {
+    return value as ReconnectPolicy;
+  }
+  throw new Error(
+    `Invalid ${fieldPath}.reconnectPolicy: expected one of ${RECONNECT_POLICY_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Normalize a per-platform overhead-visibility field. Undefined → default.
  * Throws on any other invalid value so config errors surface at startup
  * instead of silently falling back.
@@ -602,6 +631,14 @@ export interface PlatformInstanceConfig {
    * `true` uses 👀 (`eyes`); a string names a custom emoji. Default off.
    */
   ackReaction?: boolean | string;
+  /**
+   * What to do when reconnection attempts are exhausted: `retry` (default,
+   * cool down and start over — recovers with no supervisor) or `exit` (leave
+   * through the graceful shutdown path and exit non-zero, for deployments
+   * where `Restart=always` is the better recovery mechanism). Either way the
+   * bot never stays live with a dead socket (#500).
+   */
+  reconnectPolicy?: ReconnectPolicy;
   /**
    * Append-only audit trail of what the bot executed for this platform:
    * tool calls, session lifecycle, security-relevant commands, plan

@@ -21,6 +21,7 @@
 
 import { EventEmitter } from 'events';
 import { wsLogger, createLogger } from '../utils/logger.js';
+import { DEFAULT_RECONNECT_POLICY, type ReconnectPolicy } from '../config/types.js';
 import type { PlatformClient } from './client.js';
 import type {
   PlatformUser,
@@ -132,6 +133,14 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   protected maxReconnectAttempts = 10;
   protected reconnectDelay = 1000;
   protected reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  /** What to do when the attempts run out. See ReconnectPolicy. */
+  protected reconnectPolicy: ReconnectPolicy = DEFAULT_RECONNECT_POLICY;
+  /**
+   * How long `retry` waits before starting a fresh round of attempts. Long
+   * enough not to hammer a provider that is genuinely down, short enough that
+   * a laptop coming back from a tunnel reconnects without anyone noticing.
+   */
+  protected readonly RECONNECT_COOLDOWN_MS = 60000;
 
   // ============================================================================
   // Abstract Methods (must be implemented by subclasses)
@@ -401,6 +410,22 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   }
 
   /**
+   * Set what happens when reconnection attempts run out. Called by each
+   * platform's constructor from its resolved config.
+   */
+  setReconnectPolicy(policy: ReconnectPolicy): void {
+    this.reconnectPolicy = policy;
+  }
+
+  /** Cancel a pending reconnect (used on shutdown and by tests). */
+  clearReconnectTimer(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  /**
    * Stop heartbeat monitoring.
    */
   protected stopHeartbeat(): void {
@@ -422,7 +447,32 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnection attempts reached');
+      // A dead socket with a live process is a zombie nobody can see: the
+      // supervisor keeps the unit "active" while no events ever arrive, and
+      // the user just sees a bot that stopped answering (#500). Returning
+      // quietly, as this used to, is the one unacceptable outcome.
+      if (this.reconnectPolicy === 'exit') {
+        // The decision to end the process is not this class's to make: one
+        // platform's dead socket must not kill sessions on healthy platforms,
+        // and `process.exit` here would skip the graceful path entirely.
+        // `index.ts` owns it.
+        log.error(
+          `${this.platformId}: reconnection attempts exhausted — handing over for supervisor restart`
+        );
+        this.emit('reconnect-exhausted', this.platformId);
+        return;
+      }
+
+      // `retry`: recover without a supervisor. Reset and start a fresh round
+      // after a cool-down rather than giving up.
+      log.error(
+        `${this.platformId}: reconnection attempts exhausted — retrying in ${Math.round(this.RECONNECT_COOLDOWN_MS / 1000)}s`
+      );
+      this.reconnectAttempts = 0;
+      this.reconnectTimeout = setTimeout(() => {
+        this.reconnectTimeout = null;
+        this.scheduleReconnect();
+      }, this.RECONNECT_COOLDOWN_MS);
       return;
     }
 
