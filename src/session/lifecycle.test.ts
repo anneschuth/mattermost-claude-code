@@ -629,6 +629,39 @@ describe('cleanupIdleSessions extended', () => {
 
     expect(sessions.size).toBe(0);
   });
+
+  // Anne's review on #529: only the pure policy function was covered, so
+  // removing the gate from cleanupIdleSessions left the whole suite green.
+  // This pins the call site.
+  it('posts no idle warning when the platform hides lifecycle notices', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 26 * 60 * 1000), // inside the warning window
+      timeoutWarningPosted: false,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+      sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden',
+    });
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(sessions.has('test-platform:thread-123')).toBe(true); // not killed, just warned-or-not
+    expect(session.platform.createPost).not.toHaveBeenCalled();
+  });
+
+  it('posts the idle warning at full, so the gate is what silences it', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 26 * 60 * 1000),
+      timeoutWarningPosted: false,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.createPost).toHaveBeenCalled();
+  });
 });
 
 describe('killSession edge cases', () => {
@@ -1338,6 +1371,20 @@ describe('authorization gate at sinks (#388)', () => {
   });
 
   describe('resumePausedSession', () => {
+    // These tests now reach `claude.start()` (the harness supplies a
+    // getMcpConfig, without which resume threw before the notice). Spawning
+    // must therefore be deterministic: another test file sets CLAUDE_PATH to
+    // a nonexistent binary, and in a shared process that leaks in as ENOENT.
+    let prevClaudePath: string | undefined;
+    beforeEach(() => {
+      prevClaudePath = process.env.CLAUDE_PATH;
+      process.env.CLAUDE_PATH = '/bin/echo';
+    });
+    afterEach(() => {
+      if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prevClaudePath;
+    });
+
     function persistedState(overrides?: Record<string, unknown>) {
       return {
         threadId: 'thread-paused',
@@ -1360,6 +1407,12 @@ describe('authorization gate at sinks (#388)', () => {
       const platform = createMockPlatform({
         isUserAllowed: mock((u: string) => u === 'alice') as any,
         getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+        // Resume builds real CLI options from this; without allowedUsers it
+        // throws before ever reaching the resume notice.
+        getMcpConfig: mock(() => ({
+          type: 'mattermost', url: 'https://chat.example.com',
+          token: 't', channelId: 'c', allowedUsers: ['alice'],
+        })) as any,
       });
       const ctx = createMockSessionContext(new Map());
       (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
@@ -1395,6 +1448,34 @@ describe('authorization gate at sinks (#388)', () => {
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'invited', 'test-platform');
 
       expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+
+    // Anne's review on #529: at `hidden` the pause post is suppressed, so no
+    // lifecyclePostId is stored and resume created a BRAND NEW post claiming
+    // a bot restart. The quiet setting made a pause/resume cycle noisier
+    // than `full`, and wrong.
+    it('posts no resume notice when the platform hides lifecycle notices', async () => {
+      const ctx = contextWithPersisted(persistedState());
+      (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+        sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden',
+      });
+      const platform = (ctx.state.platforms as Map<string, PlatformClient>).get('test-platform')!;
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
+
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();  // it really did resume
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Session resumed'))).toBe(false);
+    });
+
+    it('posts the resume notice at full, so the gate is what silences it', async () => {
+      const ctx = contextWithPersisted(persistedState());
+      const platform = (ctx.state.platforms as Map<string, PlatformClient>).get('test-platform')!;
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
+
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Session resumed'))).toBe(true);
     });
 
     it('does not resume a session from another platform (cross-platform threadId collision)', async () => {

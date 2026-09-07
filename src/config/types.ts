@@ -59,6 +59,12 @@ export function resolveOverheadVisibility(
 export interface PlatformOverhead {
   sessionHeader: OverheadVisibility;
   stickyMessage: OverheadVisibility;
+  /**
+   * Lifecycle notices (idle warning, timeout, pause). Defaults to `full`, so
+   * an existing config behaves exactly as before. See
+   * `src/session/lifecycle-visibility.ts` for what each level drops.
+   */
+  lifecycle: OverheadVisibility;
 }
 
 // =============================================================================
@@ -625,6 +631,14 @@ export interface PlatformInstanceConfig {
    * the sticky's `description` / `footer` for platforms still rendering it.
    */
   stickyMessage?: OverheadVisibility;
+
+  /**
+   * Lifecycle notices — the idle warning, the timeout notice, the pause
+   * notice. `full` (default) is today's behaviour; `minimal` drops the
+   * predictive idle warning; `hidden` drops the status notices entirely.
+   * An abnormal exit is always reported regardless.
+   */
+  lifecycle?: OverheadVisibility;
   /**
    * Persistent memory for this platform instance (default: fully enabled).
    * See `MemoryOption` for the accepted shapes and layer semantics.

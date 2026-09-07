@@ -284,6 +284,7 @@ export class SessionManager extends EventEmitter {
     this.platformOverhead.set(platformId, {
       sessionHeader: options?.overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
       stickyMessage: options?.overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
+      lifecycle: options?.overhead?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
     });
     this.platformMemory.set(platformId, options?.memory ?? DEFAULT_MEMORY_CONFIG);
     this.platformRoutines.set(platformId, options?.routinesEnabled ?? true);
@@ -496,6 +497,7 @@ export class SessionManager extends EventEmitter {
       getPlatformOverhead: (pid) => this.platformOverhead.get(pid) ?? {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
+        lifecycle: DEFAULT_OVERHEAD_VISIBILITY,
       },
 
       getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,
