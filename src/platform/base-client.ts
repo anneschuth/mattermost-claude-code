@@ -376,6 +376,13 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   }
 
   /**
+   * Send a request the server answers immediately (platform-specific). The
+   * reply must flow through the normal message path so it updates
+   * lastMessageAt. Default: no probe (heartbeat relies on organic traffic).
+   */
+  protected sendHeartbeatProbe(): void {}
+
+  /**
    * Start heartbeat monitoring to detect dead connections.
    * If no activity is detected for HEARTBEAT_TIMEOUT_MS, forces a reconnect.
    */
@@ -396,6 +403,16 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
         return;
       }
 
+      // A quiet channel produces no traffic at all, which is indistinguishable
+      // from a dead socket. Ask the server for something cheap; its reply
+      // counts as activity, so only a socket that really stopped answering
+      // trips the timeout above.
+      // Half the interval, not the full one: the first tick lands a few ms
+      // short of INTERVAL and would skip the probe, and the next tick then
+      // trips TIMEOUT (= 2 × INTERVAL) by the same few ms.
+      if (silentFor >= this.HEARTBEAT_INTERVAL_MS / 2) {
+        this.sendHeartbeatProbe();
+      }
       wsLogger.debug(`Heartbeat check (last activity ${Math.round(silentFor / 1000)}s ago)`);
     }, this.HEARTBEAT_INTERVAL_MS);
   }

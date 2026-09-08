@@ -785,6 +785,12 @@ export class MattermostClient extends BasePlatformClient {
     return `${this.url}/_redirect/pl/${targetId}`;
   }
 
+  /** Heartbeat probe: Mattermost answers the `ping` action with a `pong` status reply. */
+  protected override sendHeartbeatProbe(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ action: 'ping', seq: Date.now() }));
+  }
+
   // Send typing indicator via WebSocket
   sendTyping(parentId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {

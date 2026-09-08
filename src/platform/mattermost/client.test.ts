@@ -366,3 +366,29 @@ describe('MattermostClient HTTP methods', () => {
     expect(attempts).toBe(3);
   }, 10_000);
 });
+
+describe('heartbeat probe', () => {
+  it('probes a quiet socket with ping instead of declaring it dead', async () => {
+    const client = makeClient();
+    const sent: string[] = [];
+    const c = client as unknown as {
+      ws: unknown; HEARTBEAT_INTERVAL_MS: number; HEARTBEAT_TIMEOUT_MS: number;
+      startHeartbeat(): void; stopHeartbeat(): void; scheduleReconnect(): void; updateLastMessageTime(): void;
+    };
+    // Real timers: the timeout check runs before the probe, so an event-loop
+    // stall longer than TIMEOUT between two ticks would reconnect and fail
+    // the test. 25/250/500 keeps ten times the slack of a loaded CI runner
+    // while the timeout can still trip inside the wait.
+    Object.defineProperty(c, 'HEARTBEAT_INTERVAL_MS', { value: 25 });
+    Object.defineProperty(c, 'HEARTBEAT_TIMEOUT_MS', { value: 250 });
+    let reconnects = 0;
+    c.scheduleReconnect = () => { reconnects++; };
+    c.ws = { readyState: 1, send: (data: string) => { sent.push(data); c.updateLastMessageTime(); } };
+    c.startHeartbeat();
+    await new Promise((r) => setTimeout(r, 500));
+    c.stopHeartbeat();
+    expect(sent.length).toBeGreaterThan(0);
+    expect(JSON.parse(sent[0])).toMatchObject({ action: 'ping' });
+    expect(reconnects).toBe(0);
+  });
+});

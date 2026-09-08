@@ -38,7 +38,9 @@ export { WS as WebSocket };
  *
  * undici's WHATWG WebSocket auto-pongs internally and exposes no frame-level
  * ping visibility at all, so that runtime stays uncovered at this layer;
- * client-initiated pings from the heartbeat are the eventual answer there.
+ * there the heartbeat's own probe (`BasePlatformClient.sendHeartbeatProbe`,
+ * a client-initiated `ping` whose reply counts as activity) keeps a quiet
+ * socket alive.
  * Both attachments are optional-chained, so a runtime lacking either is a
  * silent no-op rather than a throw.
  */
