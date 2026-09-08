@@ -5,6 +5,7 @@
  */
 
 import { spawn, spawnSync } from 'child_process';
+import { stateHome } from '../utils/state-home.js';
 import { existsSync, readFileSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
@@ -117,7 +118,7 @@ export function detectOriginalInstaller(): 'bun' | 'npm' | null {
 }
 
 // State file path
-const STATE_PATH = resolve(homedir(), '.config', 'claude-threads', UPDATE_STATE_FILENAME);
+const STATE_PATH = resolve(stateHome(), '.config', 'claude-threads', UPDATE_STATE_FILENAME);
 
 // Package name
 const PACKAGE_NAME = 'claude-threads';

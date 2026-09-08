@@ -1,14 +1,14 @@
 import { crossSpawn } from '../utils/spawn.js';
+import { stateHome } from '../utils/state-home.js';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { homedir } from 'os';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('git-wt');
 
 /** Centralized worktree location for easy cleanup */
-const WORKTREES_DIR = path.join(homedir(), '.claude-threads', 'worktrees');
+const WORKTREES_DIR = path.join(stateHome(), '.claude-threads', 'worktrees');
 
 /**
  * Metadata stored alongside each worktree for cleanup tracking
@@ -490,7 +490,7 @@ interface WorktreeMetadataStore {
   [worktreePath: string]: WorktreeMetadata;
 }
 
-const METADATA_STORE_PATH = path.join(homedir(), '.claude-threads', 'worktree-metadata.json');
+const METADATA_STORE_PATH = path.join(stateHome(), '.claude-threads', 'worktree-metadata.json');
 
 /**
  * Read the entire metadata store from disk.

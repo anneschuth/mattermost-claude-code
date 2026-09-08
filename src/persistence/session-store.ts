@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { writeFileAtomic } from './atomic-file.js';
-import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { milestoneReached } from '../sponsor.js';
@@ -8,6 +7,7 @@ import type { PlatformFile } from '../platform/types.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { OverheadVisibility } from '../config/types.js';
+import { stateHome } from '../utils/state-home.js';
 
 const log = createLogger('persist');
 
@@ -188,7 +188,7 @@ interface SessionStoreData {
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
-const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
+const DEFAULT_CONFIG_DIR = join(stateHome(), '.config', 'claude-threads');
 const DEFAULT_SESSIONS_FILE = join(DEFAULT_CONFIG_DIR, 'sessions.json');
 
 /**

@@ -10,12 +10,12 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync } from 'fs';
-import { homedir } from 'os';
+import { stateHome } from '../utils/state-home.js';
 import { join } from 'path';
 import yaml from 'js-yaml';
 import { SerialQueue, writeFileAtomic } from './atomic-file.js';
 
-export const STORES_CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
+export const STORES_CONFIG_DIR = join(stateHome(), '.config', 'claude-threads');
 
 const STORE_VERSION = 1;
 

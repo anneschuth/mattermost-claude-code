@@ -8,6 +8,8 @@
  * Content flushing is handled by MessageManager/ContentExecutor.
  */
 
+import { createHash } from 'crypto';
+import { hasStateHomeOverride, stateHome } from '../../utils/state-home.js';
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -77,7 +79,21 @@ function safeIdSegment(id: string): string {
  * session writes new uploads to the same place its previous incarnation did.
  */
 export function getSessionUploadDir(platformId: string, threadId: string): string {
-  return join(tmpdir(), UPLOAD_ROOT_DIR, `${safeIdSegment(platformId)}-${safeIdSegment(threadId)}`);
+  return join(tmpdir(), UPLOAD_ROOT_DIR, `${instancePrefix()}${safeIdSegment(platformId)}-${safeIdSegment(threadId)}`);
+}
+
+/**
+ * Two bot instances (CLAUDE_THREADS_HOME) may share platform and thread ids
+ * — DCM sessions use the platform id as thread id — so an overriding
+ * instance also keys its uploads by the state home, or one bot's cleanup
+ * would delete the other's files. The default instance keeps the historical
+ * path, so sessions persisted before this change still find their uploads.
+ * The hash is a prefix of the leaf name, not a directory of its own, so the
+ * result stays a single segment under the uploads root.
+ */
+function instancePrefix(): string {
+  if (!hasStateHomeOverride()) return '';
+  return createHash('sha1').update(stateHome()).digest('hex').slice(0, 12) + '-';
 }
 
 /**

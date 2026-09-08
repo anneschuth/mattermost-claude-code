@@ -6,7 +6,7 @@
  */
 
 import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync, rmdirSync, readFileSync, chmodSync } from 'fs';
-import { homedir } from 'os';
+import { stateHome } from '../utils/state-home.js';
 import { join, dirname } from 'path';
 import { createLogger } from '../utils/logger.js';
 import type { ClaudeEvent } from '../claude/cli.js';
@@ -14,7 +14,7 @@ import type { ClaudeEvent } from '../claude/cli.js';
 const log = createLogger('thread-log');
 
 // Base directory for thread logs (data directory, not config)
-const LOGS_BASE_DIR = join(homedir(), '.claude-threads', 'logs');
+const LOGS_BASE_DIR = join(stateHome(), '.claude-threads', 'logs');
 
 // =============================================================================
 // Log Entry Types

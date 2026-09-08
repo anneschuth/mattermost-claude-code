@@ -36,13 +36,13 @@
  */
 
 import { createHash } from 'crypto';
+import { stateHome } from '../utils/state-home.js';
 import {
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
 } from 'fs';
-import { homedir } from 'os';
 import { basename, dirname, join, sep } from 'path';
 import { SerialQueue, writeFileAtomic } from '../persistence/atomic-file.js';
 import { createLogger } from '../utils/logger.js';
@@ -51,7 +51,7 @@ import type { ResolvedMemoryConfig } from '../config/types.js';
 
 const log = createLogger('memory');
 
-const DEFAULT_ROOT = join(homedir(), '.config', 'claude-threads', 'memory');
+const DEFAULT_ROOT = join(stateHome(), '.config', 'claude-threads', 'memory');
 
 /**
  * Read-time caps for the system-prompt block. Mirror the native auto-memory

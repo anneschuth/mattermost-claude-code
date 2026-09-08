@@ -37,6 +37,9 @@ ExecStart=/usr/bin/env claude-threads-daemon
 # This is a fallback for unexpected crashes
 Restart=on-failure
 RestartSec=10
+# Exit 3 = another instance holds the state directory (see CLAUDE_THREADS_HOME);
+# restarting would only collide again.
+RestartPreventExitStatus=3
 
 # Resource limits (adjust as needed)
 # LimitNOFILE=65536

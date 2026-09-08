@@ -7,6 +7,7 @@
 #
 # For other exit codes:
 # - 0: Clean exit, don't restart
+# - 3: Refused to start (another instance holds the state directory), don't restart
 # - 1+: Error, optional restart based on flags
 #
 # PLATFORM SUPPORT:
@@ -32,6 +33,9 @@ set -e
 
 # Exit code that signals "restart for update"
 RESTART_EXIT_CODE=42
+# Exit code that signals "refused to start" (another instance holds the state
+# directory): never restart, a retry would only collide again.
+LOCKED_EXIT_CODE=3
 
 # Configuration
 MAX_RESTARTS=${CLAUDE_THREADS_MAX_RESTARTS:-0}  # 0 = unlimited
@@ -92,6 +96,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Exit codes:"
             echo "  0     Clean exit, no restart"
+            echo "  3     Refused to start (another instance holds the state directory), no restart"
             echo "  42    Update restart signal (always restarts)"
             echo "  other Error (restarts only with --restart-on-error)"
             exit 0
@@ -161,6 +166,9 @@ while true; do
     elif [ $exit_code -eq 0 ]; then
         # Clean exit
         log "Clean exit, not restarting"
+        should_restart=false
+    elif [ $exit_code -eq $LOCKED_EXIT_CODE ]; then
+        log "Another instance holds the state directory, not restarting"
         should_restart=false
     elif [ "$RESTART_ON_ERROR" = true ]; then
         # Error exit with restart-on-error enabled

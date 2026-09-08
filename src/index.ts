@@ -46,6 +46,7 @@ import {
   getRuntimeSettings,
   clearRuntimeSettings,
 } from './auto-update/installer.js';
+import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -429,6 +430,17 @@ async function startWithoutDaemon() {
     console.error(yellow(`  ⚠️  --skip-version-check: ${prefix}${claudeValidation.message}`));
     console.error('');
   }
+
+  // One process per state directory (see src/utils/instance-lock.ts).
+  let releaseInstanceLock: () => void;
+  try {
+    releaseInstanceLock = acquireInstanceLock();
+  } catch (err) {
+    console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
+    console.error('');
+    process.exit(LOCKED_EXIT_CODE); // terminal for the daemon wrapper: restarting would only collide again
+  }
+  process.on('exit', () => releaseInstanceLock());
 
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
   // forces Claude CLI into permissionMode: default and rejects
