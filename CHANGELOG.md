@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`bugReports: false` removes the `!bug` path entirely** (#574). A bug report leaves the operator's infrastructure — attached screenshots go to a public anonymous file host, and the body (session context plus recent daemon log lines) becomes an issue on this project's public repository, behind best-effort redaction. `claudeCanExecute` means the agent can trigger it unprompted. Regulated deployments need one switch that closes all of it: the typed command, Claude invoking it itself, the 🐛 error reaction, the approval that files the issue, and the `!help` listing. Defaults to `true`, so nothing changes unless you set it, and it **fails closed** — a malformed value, or a bare `bugReports:`, disables the feature rather than defaulting to on.
+
 ## [1.35.1] - 2026-09-08
 
 ### Fixed

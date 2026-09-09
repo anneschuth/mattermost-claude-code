@@ -51,7 +51,9 @@ function getSubcommandDef(command: string, subcommand: string) {
  * Handle !help command.
  */
 const handleHelp: CommandHandler = async (ctx) => {
-  const helpMessage = generateHelpMessage(ctx.formatter);
+  const helpMessage = generateHelpMessage(ctx.formatter, {
+    bugReportsEnabled: ctx.sessionManager.getBugReportsEnabled(),
+  });
   await ctx.client.createPost(helpMessage, ctx.threadId);
   return { handled: true };
 };

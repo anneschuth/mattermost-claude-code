@@ -21,6 +21,7 @@ function createMockContext(): SessionContext {
       permissionMode: 'bypass',
       chromeEnabled: false,
       debug: false,
+      bugReportsEnabled: true,
       maxSessions: 5,
     },
     ops: {} as never,

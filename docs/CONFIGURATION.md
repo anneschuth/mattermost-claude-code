@@ -54,6 +54,7 @@ platforms:
 | `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
 | `userAttribution` | Prefix each user turn sent to Claude with the sender's `[@username]:` so Claude can tell who is speaking in multi-user threads. Only applied once a thread has more than one participant (after `!invite`); solo threads are left untouched. Set `false` to disable. Applies to new sessions. | `true` |
 | `keepAlive` | Prevent system sleep while sessions are active | `true` |
+| `bugReports` | Whether `!bug` may file a report. ⚠️ A bug report leaves your infrastructure: attached screenshots are uploaded to a public anonymous file host, and the report body — session context plus recent daemon log lines — is filed as an issue on the project's public GitHub repository, behind best-effort redaction. Claude can also invoke `!bug` itself. Set `false` and the whole path is removed: the command is refused, Claude cannot invoke it either, the 🐛 error reaction does nothing, the approval that would file the issue is refused, and `!bug` disappears from `!help`. **Fails closed** — a malformed value disables it rather than defaulting to on. | `true` |
 | `limits` | Resource limits and timeouts (see below) | see below |
 | `threadLogs` | Thread logging (see below) | enabled |
 | `stickyMessage` | Sticky message text customization (see below) | none |

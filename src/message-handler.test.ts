@@ -52,6 +52,7 @@ function createMockPlatform(botName = 'claude-bot', platformType = 'slack') {
 // Create mock session manager
 function createMockSessionManager() {
   const mockGetActiveThreadIds = mock(() => [] as string[]);
+  const mockGetBugReportsEnabled = mock(() => true);
   // Registry mocks - default to not finding sessions
   const mockFindByThreadId = mock(() => undefined);
   const mockGetPersistedByThreadId = mock(() => undefined);
@@ -60,6 +61,7 @@ function createMockSessionManager() {
     isUserAllowedInSession: mock(() => true),
     addSideConversation: mock(() => {}),
     getActiveThreadIds: mockGetActiveThreadIds,
+    getBugReportsEnabled: mockGetBugReportsEnabled,
     registry: {
       getActiveThreadIds: mockGetActiveThreadIds,
       findByThreadId: mockFindByThreadId,

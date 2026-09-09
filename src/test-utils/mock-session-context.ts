@@ -49,6 +49,7 @@ export function createMockSessionContext(makePlatform: () => import('../platform
       permissionMode: 'bypass',
       chromeEnabled: false,
       debug: false,
+      bugReportsEnabled: true,
       maxSessions: 5,
     },
     state: {

@@ -214,6 +214,37 @@ export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): bool
 }
 
 /**
+ * Normalize the top-level `bugReports` field.
+ *
+ * `!bug` is the one command that sends session data OFF the operator's
+ * infrastructure: screenshots to a public anonymous file host, and a report
+ * body — session context plus recent daemon log lines — to a public GitHub
+ * issue on the maintainer's repository. Redaction is best-effort by
+ * construction, and `claudeCanExecute` means the agent can trigger it without
+ * a human typing anything.
+ *
+ * Unlike its siblings this **fails closed**: absent or `true` keeps today's
+ * behaviour, but any malformed value disables the feature rather than falling
+ * back to enabled. A `bugReports: "flase"` in a config an operator wrote in
+ * order to RESTRICT the bot must not silently leave the egress path open —
+ * the other flags fall back to something harmless, this one would not.
+ */
+export function resolveBugReportsEnabled(value: unknown, fieldPath?: string): boolean {
+  // Only a genuinely ABSENT key means "keep today's behaviour". `null` is what
+  // a bare `bugReports:` parses to — someone wrote the key, so they meant to
+  // set something, and a fail-closed flag must not read that as "on"
+  // (CodeRabbit review).
+  if (value === undefined) return true;
+  if (value === true) return true;
+  if (value === false) return false;
+  console.warn(
+    `Invalid ${fieldPath ?? 'bugReports'} config: expected boolean, got ${JSON.stringify(value)} — ` +
+    `bug reports are DISABLED (this flag fails closed: it controls data leaving your infrastructure)`,
+  );
+  return false;
+}
+
+/**
  * Thread logging configuration
  */
 // =============================================================================
@@ -534,6 +565,12 @@ export interface Config {
    */
   userAttribution?: boolean;
   keepAlive?: boolean; // Optional, defaults to true when undefined
+  /**
+   * Allow `!bug` to file a report. Default `true`. Set `false` to remove the
+   * command entirely — see resolveBugReportsEnabled for what it sends and
+   * where. Fails closed on a malformed value.
+   */
+  bugReports?: boolean;
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   threadLogs?: ThreadLogsConfig; // Optional thread logging configuration
   limits?: LimitsConfig; // Optional resource limits and timeouts

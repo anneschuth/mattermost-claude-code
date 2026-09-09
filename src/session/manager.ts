@@ -105,6 +105,8 @@ export class SessionManager extends EventEmitter {
   /** Config default for per-message `[@username]:` attribution on new sessions. */
   private userAttribution: boolean;
   private threadLogsEnabled: boolean;
+  /** Top-level `bugReports`; false removes the whole `!bug` path. */
+  private bugReportsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
   private readonly limits: ResolvedLimits;
@@ -186,7 +188,8 @@ export class SessionManager extends EventEmitter {
     limits?: LimitsConfig,
     claudeAccounts?: ClaudeAccount[],
     respondOnlyWhenMentioned = false,
-    userAttribution = true
+    userAttribution = true,
+    bugReportsEnabled = true
   ) {
     super();
     this.workingDir = workingDir;
@@ -198,6 +201,7 @@ export class SessionManager extends EventEmitter {
     this.worktreeMode = worktreeMode;
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
     this.userAttribution = userAttribution;
+    this.bugReportsEnabled = bugReportsEnabled;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -411,6 +415,7 @@ export class SessionManager extends EventEmitter {
       threadLogsRetentionDays: this.threadLogsRetentionDays,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       flushDelayMs: this.limits.flushDelayMs,
+      bugReportsEnabled: this.bugReportsEnabled,
     };
 
     const state: SessionState = {
@@ -474,7 +479,8 @@ export class SessionManager extends EventEmitter {
       deferUpdate: (min) => this.autoUpdateManager?.deferUpdate(min),
 
       // Bug report operations
-      handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
+      handleBugReportApproval: (s, approved, user) =>
+        commands.handleBugReportApproval(s, approved, user, this.getContext()),
 
       // Context prompt (inlined - no wrapper method needed)
       offerContextPrompt: (s, q, f, e, sender, autoInclude) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender, autoInclude),
@@ -1527,6 +1533,11 @@ export class SessionManager extends EventEmitter {
    */
   async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
     await this.setSessionPermissionMode(threadId, username, 'default');
+  }
+
+  /** Whether `!bug` may file a report; see resolveBugReportsEnabled. */
+  getBugReportsEnabled(): boolean {
+    return this.bugReportsEnabled;
   }
 
   async reportBug(threadId: string, description: string | undefined, username: string, files?: PlatformFile[]): Promise<void> {

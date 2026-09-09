@@ -32,6 +32,12 @@ import type { WatchesStore } from '../../persistence/watches-store.js';
  * Session configuration - immutable settings for the session manager
  */
 export interface SessionConfig {
+  /**
+   * Whether `!bug` may file a report. False removes the whole path: the
+   * command, Claude's ability to run it, and approving a report that was
+   * already pending. See resolveBugReportsEnabled for what it sends.
+   */
+  bugReportsEnabled: boolean;
   /** Base working directory for sessions */
   workingDir: string;
   /** Effective permission mode. See `PermissionMode` for semantics. */

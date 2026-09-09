@@ -100,6 +100,23 @@ async function createPostAndTrack(session: Session, message: string): Promise<Pl
 // =============================================================================
 
 /**
+ * Whether error posts offer the 🐛 quick-report reaction. Module-level for the
+ * same reason `configureAuditLog` is: `postError` has 25 call sites and no
+ * `ctx`, and this is a process-wide setting resolved once at startup.
+ */
+let bugReportsEnabled = true;
+
+/** Set from the top-level `bugReports` config at startup. */
+export function configureBugReports(enabled: boolean): void {
+  bugReportsEnabled = enabled;
+}
+
+/** Read by the other error-post path in MessageManager. */
+export function bugReportsAreEnabled(): boolean {
+  return bugReportsEnabled;
+}
+
+/**
  * Post an error message (with X prefix).
  * Adds a bug reaction for quick error reporting.
  *
@@ -119,8 +136,11 @@ export async function postError(
 ): Promise<PlatformPost> {
   const result = await post(session, 'error', message);
 
-  // Add bug reaction for quick error reporting
-  if (addBugReaction) {
+  // Add bug reaction for quick error reporting.
+  // Not offered when the operator has disabled bug reporting: the reaction is
+  // an invitation to a path that will refuse, and in the deployments this
+  // switch exists for, the button should not be on the wall at all.
+  if (addBugReaction && bugReportsEnabled) {
     try {
       await session.platform.addReaction(result.id, BUG_REPORT_EMOJI);
       // Store error context for potential bug report

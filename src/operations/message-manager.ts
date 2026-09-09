@@ -10,6 +10,7 @@
  * - Easy to add new event types by updating MessageManagerEventMap
  */
 
+import { bugReportsAreEnabled } from './post-helpers/index.js';
 import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/index.js';
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
@@ -1040,8 +1041,9 @@ export class MessageManager {
   async postError(message: string, addBugReaction = true): Promise<PlatformPost | undefined> {
     const post = await this.systemExecutor.postError(message, this.getExecutorContext());
 
-    // Add bug reaction for quick error reporting (matches post-helpers behavior)
-    if (post && addBugReaction) {
+    // Add bug reaction for quick error reporting (matches post-helpers
+    // behavior, including not offering it when bug reporting is disabled).
+    if (post && addBugReaction && bugReportsAreEnabled()) {
       try {
         const { BUG_REPORT_EMOJI } = await import('../utils/emoji.js');
         await this.platform.addReaction(post.id, BUG_REPORT_EMOJI);

@@ -46,9 +46,16 @@ function formatCommandRows(
  * @param formatter - Platform formatter for markdown formatting
  * @returns Formatted help message string
  */
-export function generateHelpMessage(formatter: PlatformFormatter): string {
+export function generateHelpMessage(
+  formatter: PlatformFormatter,
+  options?: { bugReportsEnabled?: boolean },
+): string {
   const code = formatter.formatCode.bind(formatter);
-  const commands = getUserHelpCommands();
+  // A command the operator has switched off should not be advertised —
+  // otherwise every user finds it in !help and then gets refused.
+  const commands = getUserHelpCommands().filter(
+    (c) => c.command !== 'bug' || options?.bugReportsEnabled !== false,
+  );
 
   // Build command table rows
   const rows: Array<[string, string]> = [];

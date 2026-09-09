@@ -41,6 +41,7 @@ export {
   resolveTranscriptionEnabled,
   resolveWatchesEnabled,
   resolveAuditLogEnabled,
+  resolveBugReportsEnabled,
   LIMITS_DEFAULTS,
   resolveLimits,
   resolvePermissionMode,

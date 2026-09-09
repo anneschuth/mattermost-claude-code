@@ -1334,6 +1334,23 @@ export async function reportBug(
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
 
+  // The one command that sends session data OFF the operator's
+  // infrastructure: screenshots to a public anonymous file host, and a body
+  // carrying session context plus recent daemon log lines to a public issue
+  // on the maintainer's repository, behind best-effort redaction. Gated here
+  // rather than at the command table because this function is also the 🐛
+  // error-reaction path and the route Claude takes when it runs `!bug`
+  // itself (`claudeCanExecute: true`) — a gate on the command alone would
+  // leave both open.
+  if (!ctx.config.bugReportsEnabled) {
+    await post(session, 'info',
+      `${formatter.formatBold('Bug reporting is disabled')} by this server's configuration ` +
+      `(${formatter.formatCode('bugReports: false')}).\n` +
+      `${formatter.formatItalic('Reports would otherwise be filed publicly, so nothing has been sent. Tell your operator instead.')}`
+    );
+    return;
+  }
+
   // If no description and no error context, show usage
   if (!description && !errorContext) {
     await post(session, 'info',
@@ -1419,11 +1436,20 @@ export async function reportBug(
 export async function handleBugReportApproval(
   session: Session,
   isApproved: boolean,
-  username: string
+  username: string,
+  ctx: SessionContext
 ): Promise<void> {
   // Read from MessageManager (sole source of truth)
   const pending = session.messageManager?.getPendingBugReport();
   if (!pending) return;
+
+  // The second door to `gh issue create`: this is the only caller, and it
+  // does not pass through `reportBug`, so the gate there does not cover it.
+  // Approval becomes a denial — the card is cleared and nothing is filed —
+  // while an explicit denial still works, so a stale card can be dismissed.
+  if (!ctx.config.bugReportsEnabled) {
+    isApproved = false;
+  }
 
   const formatter = session.platform.getFormatter();
 
